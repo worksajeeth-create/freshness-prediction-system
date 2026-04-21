@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=480, height=320">
+    <title>Food Freshness Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="home-screen">
+    <div class="home-container compact-home">
+        <div class="project-title">INTELLIGENT FOOD<br>FRESHNESS MONITORING SYSTEM</div>
+        <div class="datetime-display">
+            <div id="current-date" class="date-text"></div>
+            <div id="current-time" class="time-text"></div>
+        </div>
+        <div class="home-button-stack">
+            <button id="go-dashboard" class="primary-button home-main-button">▶ Live Monitoring</button>
+            <button id="go-control" class="secondary-button home-main-button">⚙ System Control</button>
+        </div>
+        <div id="boot-status" class="boot-status">Checking last session...</div>
+    </div>
+
+    <script>
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('current-date').textContent = now.toLocaleDateString('en-US', {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+            });
+            document.getElementById('current-time').textContent = now.toLocaleTimeString('en-US', {
+                hour: '2-digit', minute: '2-digit', hour12: true
+            });
+        }
+        async function loadBootStatus() {
+            const el = document.getElementById('boot-status');
+            try {
+                const res = await fetch('/api/session_status');
+                const data = await res.json();
+                const session = data.session || {};
+                if (session.status === 'running') {
+                    el.textContent = 'Session running';
+                } else {
+                    el.textContent = 'System ready';
+                }
+            } catch {
+                el.textContent = 'System ready';
+            }
+        }
+        document.getElementById('go-dashboard').addEventListener('click', () => window.location.href = '/dashboard');
+        document.getElementById('go-control').addEventListener('click', () => window.location.href = '/system-control');
+        updateDateTime();
+        setInterval(updateDateTime, 1000);
+        loadBootStatus();
+    </script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=480, height=320">
+    <title>Live Monitoring - Food Freshness</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body class="dashboard-screen">
+    <div id="main-dashboard" class="dashboard-container">
+        <div class="dashboard-header">
+            <button id="back-button" class="icon-button">← Back</button>
+            <div class="dashboard-title-stack">
+                <h1 id="food-title">No Active Session</h1>
+                <div id="session-line" class="small-status-line">Start from System Control</div>
+            </div>
+            <div class="header-time" id="header-time"></div>
+        </div>
+
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="climate">Climate</button>
+            <button class="tab-btn" data-tab="gas">Gas Readings</button>
+            <button class="tab-btn" data-tab="ml">Freshness</button>
+            <button class="tab-btn" data-tab="act">Actuators</button>
+        </div>
+
+        <div class="tab-content">
+            <div class="tab-panel active" id="tab-climate">
+                <div class="climate-panel">
+                    <div class="gauge-block">
+                        <canvas id="temp-gauge"></canvas>
+                        <div class="gauge-label">Temperature</div>
+                        <div class="gauge-value" id="temp-value">--°C</div>
+                    </div>
+                    <div class="climate-divider"></div>
+                    <div class="gauge-block">
+                        <canvas id="humidity-gauge"></canvas>
+                        <div class="gauge-label">Humidity</div>
+                        <div class="gauge-value" id="humidity-value">--%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-panel" id="tab-gas">
+                <div class="gas-chart-header">
+                    <span class="gas-title">Selected Gas Sensor Readings</span>
+                    <span class="gas-timestamp" id="gas-timestamp">--:--</span>
+                </div>
+                <div class="gas-chart-wrap">
+                    <canvas id="gas-chart"></canvas>
+                </div>
+                <div class="gas-legend" id="gas-legend"></div>
+            </div>
+
+            <div class="tab-panel" id="tab-ml">
+                <div class="freshness-display">
+                    <div class="freshness-index">
+                        <div class="freshness-number" id="freshness-index">--</div>
+                        <div class="freshness-max">/100</div>
+                    </div>
+                    <div class="freshness-status">
+                        <span class="status-badge" id="status-badge">Analyzing...</span>
+                    </div>
+                    <div class="remaining-life">
+                        <span class="life-label">Predicted Remaining Life:</span>
+                        <span class="life-value" id="remaining-days">-- days</span>
+                    </div>
+                </div>
+                <div class="chart-container"><canvas id="freshness-chart"></canvas></div>
+            </div>
+
+            <div class="tab-panel" id="tab-act">
+                <div class="actuator-grid">
+                    <div class="actuator-item">
+                        <div class="actuator-icon fan-icon"></div>
+                        <div class="actuator-label">Cooler</div>
+                        <div class="actuator-status" id="cooler-status">OFF</div>
+                    </div>
+                    <div class="actuator-item">
+                        <div class="actuator-icon vent-icon"></div>
+                        <div class="actuator-label">Ventilation</div>
+                        <div class="actuator-status" id="vent-status">OFF</div>
+                    </div>
+                    <div class="actuator-item">
+                        <div class="actuator-icon humid-icon"></div>
+                        <div class="actuator-label">Humidifier</div>
+                        <div class="actuator-status" id="humid-status">OFF</div>
+                    </div>
+                </div>
+                <div class="actuator-note">Automatic control mode — optimizing for freshness</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/gauges.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.tab-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                    btn.classList.add('active');
+                    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

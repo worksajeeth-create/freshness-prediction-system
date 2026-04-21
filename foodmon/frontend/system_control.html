@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=480, height=320">
+    <title>System Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-screen">
+<div class="control-shell dashboard-container">
+    <div class="dashboard-header">
+        <button class="icon-button" onclick="window.location.href='/'">← Back</button>
+        <h1>System Control</h1>
+        <div class="header-time" id="header-time"></div>
+    </div>
+
+    <div class="tab-bar">
+        <button class="tab-btn active" data-tab="food">Food</button>
+        <button class="tab-btn" data-tab="sensors">Select Gas Sensors</button>
+        <button class="tab-btn" data-tab="session">Session Status</button>
+    </div>
+
+    <div class="tab-content control-tab-content">
+        <div class="tab-panel active" id="tab-food">
+            <div class="control-panel single-tab-panel">
+                <div class="control-section grow">
+                    <div class="section-title">Food</div>
+                    <select id="food-select" class="system-select"></select>
+                    <div class="control-hint">Select the food item for this monitoring session.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-panel" id="tab-sensors">
+            <div class="control-panel single-tab-panel">
+                <div class="control-section grow">
+                    <div class="section-title">Select Gas Sensors</div>
+                    <div id="sensor-grid" class="sensor-grid"></div>
+                    <div class="control-hint">Only selected gas sensors will be recorded for this session.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-panel" id="tab-session">
+            <div class="control-panel single-tab-panel session-panel-layout">
+                <div class="control-section compact">
+                    <div class="section-title">Session Status</div>
+                    <div id="session-status" class="status-card">Idle</div>
+                </div>
+
+                <div class="control-actions session-actions-vertical">
+                    <button id="start-btn" class="primary-button small-btn">● Start Monitoring</button>
+                    <div id="recording-inline" class="recording-inline hidden">
+                        <div class="recording-inline-title">Gas readings are recording</div>
+                        <div class="recording-inline-subtitle">Recording continues until Stop Monitoring is pressed.</div>
+                    </div>
+                    <button id="stop-btn" class="danger-button small-btn">■ Stop Monitoring</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='js/system_control.js') }}"></script>
+</body>
+</html>
