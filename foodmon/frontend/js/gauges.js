@@ -51,6 +51,8 @@ class GaugeChart {
     }
 }
 
+/* ── Storage chamber gauges (original colours) ─────────────────────────────── */
+
 class TemperatureGauge extends GaugeChart {
     constructor(canvasId) {
         super(canvasId, {
@@ -78,6 +80,39 @@ class HumidityGauge extends GaugeChart {
             min: 0, max: 100,
             color: 'rgb(33, 150, 243)',
             fadeColor: 'rgba(33, 150, 243, 0.2)'
+        });
+    }
+}
+
+/* ── Sensor chamber gauges (purple / cyan palette) ──────────────────────────── */
+
+class SensorChamberTempGauge extends GaugeChart {
+    constructor(canvasId) {
+        super(canvasId, {
+            min: 0, max: 50,
+            color: 'rgb(156, 91, 204)',
+            fadeColor: 'rgba(156, 91, 204, 0.2)'
+        });
+    }
+
+    update(newValue) {
+        if (isNaN(newValue)) return;
+        // Higher temps in the sensor chamber are normal — use purple → amber range
+        let color;
+        if (newValue < 20) color = 'rgb(156, 91, 204)';      // cool purple
+        else if (newValue < 35) color = 'rgb(171, 71, 188)';  // warm purple
+        else color = 'rgb(255, 152, 0)';                       // amber warning
+        this.options.color = color;
+        super.update(newValue);
+    }
+}
+
+class SensorChamberHumidityGauge extends GaugeChart {
+    constructor(canvasId) {
+        super(canvasId, {
+            min: 0, max: 100,
+            color: 'rgb(0, 188, 212)',
+            fadeColor: 'rgba(0, 188, 212, 0.2)'
         });
     }
 }
