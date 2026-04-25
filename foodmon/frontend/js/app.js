@@ -1,5 +1,6 @@
 const socket = io();
-let tempGauge, humidityGauge, freshnessChart, gasChart;
+let tempGauge, humidityGauge, scTempGauge, scHumidityGauge;
+let freshnessChart, gasChart;
 let currentFood = null;
 let currentSession = null;
 let sessionStatus = 'idle';
@@ -20,8 +21,14 @@ const SENSOR_META = {
 function capitalize(text) { return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; }
 
 document.addEventListener('DOMContentLoaded', async function () {
-    tempGauge = new TemperatureGauge('temp-gauge');
+    // Storage gauges
+    tempGauge     = new TemperatureGauge('temp-gauge');
     humidityGauge = new HumidityGauge('humidity-gauge');
+
+    // Sensor chamber gauges (purple/cyan palette)
+    scTempGauge     = new SensorChamberTempGauge('sc-temp-gauge');
+    scHumidityGauge = new SensorChamberHumidityGauge('sc-humidity-gauge');
+
     initFreshnessChart();
     initGasChart();
     buildLegend();
@@ -150,11 +157,15 @@ function checkStaleData() {
     if (Date.now() - lastSensorUpdateMs > 20000) {
         tempGauge.setOffline();
         humidityGauge.setOffline();
+        scTempGauge.setOffline();
+        scHumidityGauge.setOffline();
         if (sessionStatus === 'running') {
             document.getElementById('session-line').textContent = 'No recent sensor data';
         }
     }
 }
+
+// ── Socket events ──────────────────────────────────────────────────────────────
 
 socket.on('connect', function () {
     socket.emit('request_update');
@@ -172,14 +183,40 @@ socket.on('session_update', function (session) {
 
 socket.on('sensor_update', function (data) {
     lastSensorUpdateMs = Date.now();
-    if (data.temperature != null) {
-        tempGauge.update(data.temperature);
-        document.getElementById('temp-value').textContent = data.temperature.toFixed(1) + '°C';
+
+    // ── Storage climate ──────────────────────────────────────────────────────
+    const storage = data.storage || {};
+    const storageTemp = storage.temperature;
+    const storageHum  = storage.humidity;
+
+    // Fallback: older backends that send flat temperature/humidity
+    const flatTemp = data.temperature;
+    const flatHum  = data.humidity;
+
+    const displayTemp = storageTemp != null ? storageTemp : flatTemp;
+    const displayHum  = storageHum  != null ? storageHum  : flatHum;
+
+    if (displayTemp != null) {
+        tempGauge.update(displayTemp);
+        document.getElementById('temp-value').textContent = displayTemp.toFixed(1) + '°C';
     }
-    if (data.humidity != null) {
-        humidityGauge.update(data.humidity);
-        document.getElementById('humidity-value').textContent = data.humidity.toFixed(1) + '%';
+    if (displayHum != null) {
+        humidityGauge.update(displayHum);
+        document.getElementById('humidity-value').textContent = displayHum.toFixed(1) + '%';
     }
+
+    // ── Sensor chamber climate ───────────────────────────────────────────────
+    const sc = data.sensor_chamber || {};
+    if (sc.temperature != null) {
+        scTempGauge.update(sc.temperature);
+        document.getElementById('sc-temp-value').textContent = sc.temperature.toFixed(1) + '°C';
+    }
+    if (sc.humidity != null) {
+        scHumidityGauge.update(sc.humidity);
+        document.getElementById('sc-humidity-value').textContent = sc.humidity.toFixed(1) + '%';
+    }
+
+    // ── Gas readings ─────────────────────────────────────────────────────────
     if (data.gases && data.timestamp) {
         updateGasChart(data.gases, data.timestamp);
     }
@@ -214,14 +251,20 @@ socket.on('ml_update', function (data) {
 
 socket.on('actuator_update', function (data) {
     const cooler = document.getElementById('cooler-status');
-    cooler.textContent  = data.cooler ? 'ON' : 'OFF';
-    cooler.className    = 'actuator-status' + (data.cooler ? ' on' : '');
+    cooler.textContent = data.cooler ? 'ON' : 'OFF';
+    cooler.className   = 'actuator-status' + (data.cooler ? ' on' : '');
+    const coolerWrap = document.getElementById('cooler-icon-wrap');
+    if (coolerWrap) coolerWrap.className = 'actuator-icon-wrap cooler-svg-icon' + (data.cooler ? ' svg-icon-on' : '');
 
     const vent = document.getElementById('vent-status');
-    vent.textContent    = data.ventilation || 'OFF';
-    vent.className      = 'actuator-status' + (data.ventilation !== 'OFF' ? ' on' : '');
+    vent.textContent = data.ventilation || 'OFF';
+    vent.className   = 'actuator-status' + (data.ventilation !== 'OFF' ? ' on' : '');
+    const ventWrap = document.getElementById('vent-icon-wrap');
+    if (ventWrap) ventWrap.className = 'actuator-icon-wrap vent-svg-icon' + (data.ventilation !== 'OFF' ? ' svg-icon-on' : '');
 
     const humid = document.getElementById('humid-status');
-    humid.textContent   = data.humidifier ? 'ON' : 'OFF';
-    humid.className     = 'actuator-status' + (data.humidifier ? ' on' : '');
+    humid.textContent = data.humidifier ? 'ON' : 'OFF';
+    humid.className   = 'actuator-status' + (data.humidifier ? ' on' : '');
+    const humidWrap = document.getElementById('humid-icon-wrap');
+    if (humidWrap) humidWrap.className = 'actuator-icon-wrap humid-svg-icon' + (data.humidifier ? ' svg-icon-on' : '');
 });
