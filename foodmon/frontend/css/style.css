@@ -290,3 +290,241 @@ body {
     color: var(--fg-muted);
     line-height: 1.2;
 }
+
+/* ── Climate sub-toggle (Storage / Sensor Chamber) ────────────────────────── */
+.climate-mode-toggle {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px 2px;
+    flex-shrink: 0;
+}
+.climate-mode-btn {
+    flex: 1;
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 5px 0;
+    cursor: pointer;
+    text-align: center;
+}
+.climate-mode-btn.active {
+    background: hsla(175, 70%, 45%, 0.15);
+    border-color: var(--teal);
+    color: var(--teal);
+}
+
+/* Sensor Chamber gauge values use a purple accent */
+.sensor-chamber-val {
+    color: hsl(270, 60%, 72%);
+}
+
+/* ── Food tab — keep select inside the panel ──────────────────────────────── */
+.sc-food-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    height: 100%;
+    box-sizing: border-box;
+}
+.sc-food-select {
+    width: 100%;
+    flex: 0 0 auto;
+}
+
+/* ── Actuators tab (System Control) ──────────────────────────────────────── */
+.sc-act-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 8px 10px;
+    gap: 6px;
+    box-sizing: border-box;
+}
+
+/* Lock alert banner */
+.act-lock-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: hsla(38, 95%, 55%, 0.12);
+    border: 1px solid hsl(38, 95%, 55%);
+    border-radius: var(--radius);
+    padding: 7px 10px;
+    font-size: 10px;
+    color: hsl(38, 95%, 65%);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+}
+.act-lock-banner.hidden { display: none; }
+.act-lock-icon { font-size: 13px; flex-shrink: 0; }
+
+/* Rows */
+.act-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+}
+.act-controls.act-locked {
+    opacity: 0.38;
+    pointer-events: none;
+}
+.act-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+}
+.act-row-icon {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.cooler-svg-icon { color: hsl(200, 80%, 60%); }
+.vent-svg-icon   { color: hsl(38,  95%, 55%); }
+.humid-svg-icon  { color: hsl(175, 70%, 45%); }
+
+.act-row-info { flex: 1; min-width: 0; }
+.act-row-name { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--fg); }
+.act-row-sub  { font-size: 9px; color: var(--fg-muted); margin-top: 1px; }
+
+/* ON/OFF toggle widget */
+.act-onoff { flex-shrink: 0; cursor: pointer; user-select: none; }
+.act-onoff-track {
+    position: relative;
+    width: 72px;
+    height: 26px;
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    transition: background 0.2s, border-color 0.2s;
+}
+.act-onoff[data-state="on"] .act-onoff-track {
+    background: hsla(175, 70%, 45%, 0.18);
+    border-color: var(--teal);
+}
+.act-label-off,
+.act-label-on {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+.act-label-off { right: 7px; color: var(--fg-muted); }
+.act-label-on  { left:  7px; color: var(--teal);     opacity: 0; }
+.act-onoff[data-state="on"] .act-label-off { opacity: 0; }
+.act-onoff[data-state="on"] .act-label-on  { opacity: 1; }
+
+.act-onoff-thumb {
+    position: absolute;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    background: var(--fg-muted);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+.act-onoff[data-state="on"] .act-onoff-thumb {
+    transform: translateX(46px);
+    background: var(--teal);
+}
+
+/* Send row */
+.act-send-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-shrink: 0;
+    padding-top: 2px;
+}
+.act-feedback {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--fg-muted);
+    flex: 1;
+}
+.act-feedback-ok  { color: var(--fresh); }
+.act-feedback-err { color: var(--spoiled); }
+
+/* ── Dashboard actuator tab — SVG icon wrappers ───────────────────────────── */
+.actuator-icon-wrap {
+    width: 42px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--secondary);
+    transition: background 0.25s, color 0.25s;
+}
+.actuator-icon-wrap.svg-icon-on {
+    background: hsla(175, 70%, 45%, 0.15);
+}
+/* Individual icon tint colours */
+.cooler-svg-icon { color: hsl(200, 80%, 60%); }
+.vent-svg-icon   { color: hsl(38,  95%, 60%); }
+.humid-svg-icon  { color: hsl(175, 70%, 50%); }
+
+/* ── Food button grid (3 rows × 5 cols, Food tab in System Control) ────────── */
+.sc-food-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    justify-content: center;
+}
+.food-btn-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 5px;
+    width: 100%;
+    flex: 1;
+}
+.food-btn {
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg-secondary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    padding: 0;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.food-btn:active {
+    transform: scale(0.96);
+}
+.food-btn.active {
+    background: hsla(175, 70%, 45%, 0.18);
+    border-color: var(--teal);
+    color: var(--teal);
+    box-shadow: 0 0 8px hsla(175, 70%, 45%, 0.25);
+}
