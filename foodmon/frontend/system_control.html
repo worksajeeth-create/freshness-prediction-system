@@ -16,48 +16,152 @@
 
     <div class="tab-bar">
         <button class="tab-btn active" data-tab="food">Food</button>
-        <button class="tab-btn" data-tab="sensors">Select Gas Sensors</button>
-        <button class="tab-btn" data-tab="session">Session Status</button>
+        <button class="tab-btn" data-tab="sensors">Gas Sensors</button>
+        <button class="tab-btn" data-tab="session">Session</button>
+        <button class="tab-btn" data-tab="actuators">Actuators</button>
     </div>
 
     <div class="tab-content control-tab-content">
+
+        <!-- FOOD TAB -->
         <div class="tab-panel active" id="tab-food">
-            <div class="control-panel single-tab-panel">
-                <div class="control-section grow">
-                    <div class="section-title">Food</div>
-                    <select id="food-select" class="system-select"></select>
-                    <div class="control-hint">Select the food item for this monitoring session.</div>
-                </div>
+            <div class="sc-food-panel">
+                <div id="food-grid" class="food-btn-grid"></div>
             </div>
         </div>
 
+        <!-- GAS SENSORS TAB -->
         <div class="tab-panel" id="tab-sensors">
             <div class="control-panel single-tab-panel">
                 <div class="control-section grow">
                     <div class="section-title">Select Gas Sensors</div>
                     <div id="sensor-grid" class="sensor-grid"></div>
-                    <div class="control-hint">Only selected gas sensors will be recorded for this session.</div>
+                    <div class="control-hint">Only selected sensors will be recorded and used in ML.</div>
                 </div>
             </div>
         </div>
 
+        <!-- SESSION TAB -->
         <div class="tab-panel" id="tab-session">
             <div class="control-panel single-tab-panel session-panel-layout">
                 <div class="control-section compact">
                     <div class="section-title">Session Status</div>
                     <div id="session-status" class="status-card">Idle</div>
                 </div>
-
                 <div class="control-actions session-actions-vertical">
-                    <button id="start-btn" class="primary-button small-btn">● Start Monitoring</button>
+                    <button id="start-btn" class="primary-button small-btn">&#9679; Start Monitoring</button>
                     <div id="recording-inline" class="recording-inline hidden">
                         <div class="recording-inline-title">Gas readings are recording</div>
                         <div class="recording-inline-subtitle">Recording continues until Stop Monitoring is pressed.</div>
                     </div>
-                    <button id="stop-btn" class="danger-button small-btn">■ Stop Monitoring</button>
+                    <button id="stop-btn" class="danger-button small-btn">&#9632; Stop Monitoring</button>
                 </div>
             </div>
         </div>
+
+        <!-- ACTUATORS TAB -->
+        <div class="tab-panel" id="tab-actuators">
+            <div class="sc-act-panel">
+
+                <!-- Lock alert: shown only while a session is running -->
+                <div id="act-lock-banner" class="act-lock-banner hidden">
+                    <span class="act-lock-icon">&#9888;</span>
+                    <span>Manual control disabled — active monitoring session in progress.</span>
+                </div>
+
+                <!-- Actuator rows -->
+                <div id="act-controls" class="act-controls">
+
+                    <!-- Cooler -->
+                    <div class="act-row">
+                        <div class="act-row-icon cooler-svg-icon">
+                            <svg width="26" height="26" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <line x1="14" y1="2"  x2="14" y2="26" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="2"  y1="14" x2="26" y2="14" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="5"  y1="5"  x2="23" y2="23" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="23" y1="5"  x2="5"  y2="23" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="11" y1="4"  x2="14" y2="7"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="17" y1="4"  x2="14" y2="7"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="11" y1="24" x2="14" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="17" y1="24" x2="14" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="4"  y1="11" x2="7"  y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="4"  y1="17" x2="7"  y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="24" y1="11" x2="21" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="24" y1="17" x2="21" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                        <div class="act-row-info">
+                            <div class="act-row-name">Cooler</div>
+                            <div class="act-row-sub">Peltier module</div>
+                        </div>
+                        <div class="act-onoff" id="toggle-cooler" data-actuator="cooler" data-state="off">
+                            <div class="act-onoff-track">
+                                <span class="act-label-off">OFF</span>
+                                <span class="act-label-on">ON</span>
+                                <div class="act-onoff-thumb"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Ventilation -->
+                    <div class="act-row">
+                        <div class="act-row-icon vent-svg-icon">
+                            <svg width="26" height="26" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="14" cy="14" r="3" fill="currentColor"/>
+                                <path d="M14 11 C14 7 9 5 8 8 C7 11 11 11 14 11Z"  fill="currentColor" opacity="0.9"/>
+                                <path d="M17 14 C21 14 23 9 20 8 C17 7 17 11 17 14Z" fill="currentColor" opacity="0.9"/>
+                                <path d="M14 17 C14 21 19 23 20 20 C21 17 17 17 14 17Z" fill="currentColor" opacity="0.9"/>
+                                <path d="M11 14 C7 14 5 19 8 20 C11 21 11 17 11 14Z"  fill="currentColor" opacity="0.9"/>
+                                <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.3"/>
+                            </svg>
+                        </div>
+                        <div class="act-row-info">
+                            <div class="act-row-name">Ventilation</div>
+                            <div class="act-row-sub">Blower fan</div>
+                        </div>
+                        <div class="act-onoff" id="toggle-ventilation" data-actuator="ventilation" data-state="off">
+                            <div class="act-onoff-track">
+                                <span class="act-label-off">OFF</span>
+                                <span class="act-label-on">ON</span>
+                                <div class="act-onoff-thumb"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Humidifier -->
+                    <div class="act-row">
+                        <div class="act-row-icon humid-svg-icon">
+                            <svg width="26" height="26" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 5 C14 5 7 14 7 18 A7 7 0 0 0 21 18 C21 14 14 5 14 5Z" fill="currentColor" opacity="0.8"/>
+                                <line x1="9"  y1="3" x2="8"  y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.65"/>
+                                <line x1="14" y1="2" x2="14" y2="0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>
+                                <line x1="19" y1="3" x2="20" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.65"/>
+                                <ellipse cx="11.5" cy="17" rx="1.2" ry="2" fill="white" opacity="0.22" transform="rotate(-15 11.5 17)"/>
+                            </svg>
+                        </div>
+                        <div class="act-row-info">
+                            <div class="act-row-name">Humidifier</div>
+                            <div class="act-row-sub">Mist maker</div>
+                        </div>
+                        <div class="act-onoff" id="toggle-humidifier" data-actuator="humidifier" data-state="off">
+                            <div class="act-onoff-track">
+                                <span class="act-label-off">OFF</span>
+                                <span class="act-label-on">ON</span>
+                                <div class="act-onoff-thumb"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /act-controls -->
+
+                <div class="act-send-row">
+                    <div id="act-feedback" class="act-feedback"></div>
+                    <button id="act-send-btn" class="secondary-button small-btn">&#9654; Send Command</button>
+                </div>
+
+            </div>
+        </div>
+
     </div>
 </div>
 <script src="{{ url_for('static', filename='js/system_control.js') }}"></script>
