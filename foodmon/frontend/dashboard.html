@@ -27,8 +27,16 @@
         </div>
 
         <div class="tab-content">
+            <!-- CLIMATE TAB -->
             <div class="tab-panel active" id="tab-climate">
-                <div class="climate-panel">
+                <!-- Storage / Sensor Chamber toggle -->
+                <div class="climate-mode-toggle">
+                    <button class="climate-mode-btn active" id="climate-btn-storage" data-mode="storage">Storage</button>
+                    <button class="climate-mode-btn" id="climate-btn-sensor" data-mode="sensor">Sensor Chamber</button>
+                </div>
+
+                <!-- Storage panel -->
+                <div class="climate-panel" id="climate-storage">
                     <div class="gauge-block">
                         <canvas id="temp-gauge"></canvas>
                         <div class="gauge-label">Temperature</div>
@@ -41,8 +49,24 @@
                         <div class="gauge-value" id="humidity-value">--%</div>
                     </div>
                 </div>
+
+                <!-- Sensor Chamber panel -->
+                <div class="climate-panel" id="climate-sensor" style="display:none;">
+                    <div class="gauge-block">
+                        <canvas id="sc-temp-gauge"></canvas>
+                        <div class="gauge-label">Temperature</div>
+                        <div class="gauge-value sensor-chamber-val" id="sc-temp-value">--°C</div>
+                    </div>
+                    <div class="climate-divider"></div>
+                    <div class="gauge-block">
+                        <canvas id="sc-humidity-gauge"></canvas>
+                        <div class="gauge-label">Humidity</div>
+                        <div class="gauge-value sensor-chamber-val" id="sc-humidity-value">--%</div>
+                    </div>
+                </div>
             </div>
 
+            <!-- GAS TAB -->
             <div class="tab-panel" id="tab-gas">
                 <div class="gas-chart-header">
                     <span class="gas-title">Selected Gas Sensor Readings</span>
@@ -54,6 +78,7 @@
                 <div class="gas-legend" id="gas-legend"></div>
             </div>
 
+            <!-- FRESHNESS TAB -->
             <div class="tab-panel" id="tab-ml">
                 <div class="freshness-display">
                     <div class="freshness-index">
@@ -71,23 +96,63 @@
                 <div class="chart-container"><canvas id="freshness-chart"></canvas></div>
             </div>
 
+            <!-- ACTUATORS TAB -->
             <div class="tab-panel" id="tab-act">
                 <div class="actuator-grid">
+
+                    <!-- Cooler -->
                     <div class="actuator-item">
-                        <div class="actuator-icon fan-icon"></div>
+                        <div class="actuator-icon-wrap cooler-svg-icon" id="cooler-icon-wrap">
+                            <svg width="36" height="36" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <line x1="14" y1="2"  x2="14" y2="26" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="2"  y1="14" x2="26" y2="14" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="5"  y1="5"  x2="23" y2="23" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="23" y1="5"  x2="5"  y2="23" stroke="currentColor" stroke-width="2"   stroke-linecap="round"/>
+                                <line x1="11" y1="4"  x2="14" y2="7"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="17" y1="4"  x2="14" y2="7"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="11" y1="24" x2="14" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="17" y1="24" x2="14" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="4"  y1="11" x2="7"  y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="4"  y1="17" x2="7"  y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="24" y1="11" x2="21" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="24" y1="17" x2="21" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </div>
                         <div class="actuator-label">Cooler</div>
                         <div class="actuator-status" id="cooler-status">OFF</div>
                     </div>
+
+                    <!-- Ventilation -->
                     <div class="actuator-item">
-                        <div class="actuator-icon vent-icon"></div>
+                        <div class="actuator-icon-wrap vent-svg-icon" id="vent-icon-wrap">
+                            <svg width="36" height="36" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="14" cy="14" r="3" fill="currentColor"/>
+                                <path d="M14 11 C14 7 9 5 8 8 C7 11 11 11 14 11Z"    fill="currentColor" opacity="0.9"/>
+                                <path d="M17 14 C21 14 23 9 20 8 C17 7 17 11 17 14Z"  fill="currentColor" opacity="0.9"/>
+                                <path d="M14 17 C14 21 19 23 20 20 C21 17 17 17 14 17Z" fill="currentColor" opacity="0.9"/>
+                                <path d="M11 14 C7 14 5 19 8 20 C11 21 11 17 11 14Z"  fill="currentColor" opacity="0.9"/>
+                                <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.3"/>
+                            </svg>
+                        </div>
                         <div class="actuator-label">Ventilation</div>
                         <div class="actuator-status" id="vent-status">OFF</div>
                     </div>
+
+                    <!-- Humidifier -->
                     <div class="actuator-item">
-                        <div class="actuator-icon humid-icon"></div>
+                        <div class="actuator-icon-wrap humid-svg-icon" id="humid-icon-wrap">
+                            <svg width="36" height="36" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 5 C14 5 7 14 7 18 A7 7 0 0 0 21 18 C21 14 14 5 14 5Z" fill="currentColor" opacity="0.8"/>
+                                <line x1="9"  y1="3" x2="8"  y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.65"/>
+                                <line x1="14" y1="2" x2="14" y2="0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.9"/>
+                                <line x1="19" y1="3" x2="20" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.65"/>
+                                <ellipse cx="11.5" cy="17" rx="1.2" ry="2" fill="white" opacity="0.22" transform="rotate(-15 11.5 17)"/>
+                            </svg>
+                        </div>
                         <div class="actuator-label">Humidifier</div>
                         <div class="actuator-status" id="humid-status">OFF</div>
                     </div>
+
                 </div>
                 <div class="actuator-note">Automatic control mode — optimizing for freshness</div>
             </div>
@@ -98,12 +163,31 @@
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            // Top tab switching
             document.querySelectorAll('.tab-btn').forEach(function (btn) {
                 btn.addEventListener('click', function () {
                     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
                     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
                     btn.classList.add('active');
                     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+                });
+            });
+
+            // Climate sub-toggle
+            document.querySelectorAll('.climate-mode-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    document.querySelectorAll('.climate-mode-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    const mode = btn.dataset.mode;
+                    if (mode === 'storage') {
+                        document.getElementById('climate-storage').style.display = 'flex';
+                        document.getElementById('climate-sensor').style.display = 'none';
+                        
+                    } else {
+                        document.getElementById('climate-storage').style.display = 'none';
+                        document.getElementById('climate-sensor').style.display = 'flex';
+                        
+                    }
                 });
             });
         });
