@@ -1,5 +1,9 @@
 """Actuator control logic.
-Uses ESP-side actuator GPIO by default and can optionally use Raspberry Pi GPIO.
+
+Uses ESP-side actuator GPIO by default via MQTT.
+The update() method now accepts a suppress_dispatch flag so that app.py
+can prevent the ML controller from publishing MQTT commands during a
+manual override window (avoiding rapid on/off cycling).
 """
 from __future__ import annotations
 
@@ -27,20 +31,13 @@ def _load_gpio():
         LOW = 0
 
         @staticmethod
-        def setmode(mode):
-            return None
-
+        def setmode(mode): return None
         @staticmethod
-        def setup(pin, mode):
-            return None
-
+        def setup(pin, mode): return None
         @staticmethod
-        def output(pin, state):
-            return None
-
+        def output(pin, state): return None
         @staticmethod
-        def cleanup():
-            return None
+        def cleanup(): return None
 
     return False, MockGPIO()
 
@@ -71,23 +68,49 @@ class ActuatorController:
         else:
             print("ActuatorController: ESP actuator mode (Pi GPIO disabled)")
 
-    def update(self, food_name: str, sensor_data: Dict[str, float], ml_prediction: Dict[str, object], selected_sensors: List[str]):
+    def update(
+        self,
+        food_name: str,
+        sensor_data: Dict[str, float],
+        ml_prediction: Dict[str, object],
+        selected_sensors: List[str],
+        suppress_dispatch: bool = False,
+    ):
+        """
+        Run the ML-driven actuator control logic and optionally dispatch
+        the result to the ESP via MQTT.
+
+        Parameters
+        ----------
+        suppress_dispatch : bool
+            When True, the method still calculates the desired actuator
+            state (so internal state stays consistent) but does NOT
+            publish a new MQTT command.  Pass True during a manual
+            override window to prevent flooding the ESP.
+        """
         self.last_update_time = time.time()
         temperature = float(sensor_data.get("temperature", 20.0) or 20.0)
-        humidity = float(sensor_data.get("humidity", 50.0) or 50.0)
-        freshness = float(ml_prediction.get("freshness_index", 50.0) or 50.0)
+        humidity    = float(sensor_data.get("humidity",    50.0) or 50.0)
+        freshness   = float(ml_prediction.get("freshness_index", 50.0) or 50.0)
 
-        temp_optimal = config.TEMPERATURE_OPTIMAL.get(food_name, 4.0)
+        temp_optimal     = config.TEMPERATURE_OPTIMAL.get(food_name, 4.0)
         humidity_optimal = config.HUMIDITY_OPTIMAL.get(food_name, 90.0)
-        gases_exceeding = self._check_gas_thresholds(sensor_data, selected_sensors)
+        gases_exceeding  = self._check_gas_thresholds(sensor_data, selected_sensors)
 
-        self._control_cooler(temperature, temp_optimal, freshness, gases_exceeding)
+        self._control_cooler    (temperature, temp_optimal, freshness, gases_exceeding)
         self._control_ventilation(gases_exceeding, freshness)
-        self._control_humidifier(humidity, humidity_optimal)
-        self._dispatch_state()
+        self._control_humidifier (humidity, humidity_optimal)
+
+        if not suppress_dispatch:
+            self._dispatch_state()
+
         return self.get_status()
 
-    def _check_gas_thresholds(self, sensor_data: Dict[str, float], selected_sensors: List[str]) -> List[str]:
+    # ── Internal control logic ────────────────────────────────────────
+
+    def _check_gas_thresholds(
+        self, sensor_data: Dict[str, float], selected_sensors: List[str]
+    ) -> List[str]:
         exceeding = []
         for gas_name in selected_sensors:
             threshold = config.GAS_THRESHOLDS.get(gas_name)
@@ -102,7 +125,13 @@ class ActuatorController:
                 exceeding.append(gas_name)
         return exceeding
 
-    def _control_cooler(self, current_temp: float, optimal_temp: float, freshness: float, gases_exceeding: List[str]):
+    def _control_cooler(
+        self,
+        current_temp: float,
+        optimal_temp: float,
+        freshness: float,
+        gases_exceeding: List[str],
+    ):
         should_cool = self.cooler_on
         now = time.time()
 
@@ -135,15 +164,15 @@ class ActuatorController:
 
         if level != self.ventilation_level:
             if self.use_pi_gpio:
-                GPIO.output(self.pins["ventilation_low"], GPIO.LOW)
-                GPIO.output(self.pins["ventilation_med"], GPIO.LOW)
-                GPIO.output(self.pins["ventilation_high"], GPIO.LOW)
+                GPIO.output(self.pins.get("ventilation_low",  0), GPIO.LOW)
+                GPIO.output(self.pins.get("ventilation_med",  0), GPIO.LOW)
+                GPIO.output(self.pins.get("ventilation_high", 0), GPIO.LOW)
                 if level == "LOW":
-                    GPIO.output(self.pins["ventilation_low"], GPIO.HIGH)
+                    GPIO.output(self.pins.get("ventilation_low",  0), GPIO.HIGH)
                 elif level == "MEDIUM":
-                    GPIO.output(self.pins["ventilation_med"], GPIO.HIGH)
+                    GPIO.output(self.pins.get("ventilation_med",  0), GPIO.HIGH)
                 elif level == "HIGH":
-                    GPIO.output(self.pins["ventilation_high"], GPIO.HIGH)
+                    GPIO.output(self.pins.get("ventilation_high", 0), GPIO.HIGH)
             self.ventilation_level = level
 
     def _control_humidifier(self, current_humidity: float, optimal_humidity: float):
@@ -156,38 +185,43 @@ class ActuatorController:
         if should != self.humidifier_on:
             self.humidifier_on = should
             if self.use_pi_gpio:
-                GPIO.output(self.pins["humidifier"], GPIO.HIGH if should else GPIO.LOW)
+                GPIO.output(
+                    self.pins["humidifier"],
+                    GPIO.HIGH if should else GPIO.LOW,
+                )
 
     def _dispatch_state(self):
+        """Publish current actuator state to the ESP32 via MQTT."""
         if self.mode == "esp" and self.mqtt_handler:
             payload = {
-                "command": "set_actuators",
-                "cooler": self.cooler_on,
+                "command":     "set_actuators",
+                "cooler":      self.cooler_on,
                 "ventilation": self.ventilation_level,
-                "humidifier": self.humidifier_on,
-                "timestamp": int(time.time()),
+                "humidifier":  self.humidifier_on,
+                "timestamp":   int(time.time()),
             }
             self.mqtt_handler.publish(config.ESP_ACTUATOR_COMMAND_TOPIC, payload)
 
     def get_status(self):
         return {
-            "cooler": self.cooler_on,
+            "cooler":      self.cooler_on,
             "ventilation": self.ventilation_level,
-            "humidifier": self.humidifier_on,
-            "mode": self.mode,
+            "humidifier":  self.humidifier_on,
+            "mode":        self.mode,
         }
 
     def safe_shutdown_if_stale(self):
+        """Force off if no sensor data has arrived for 60+ seconds."""
         if time.time() - self.last_update_time > 60:
-            self.cooler_on = False
+            self.cooler_on         = False
             self.ventilation_level = "OFF"
-            self.humidifier_on = False
+            self.humidifier_on     = False
             if self.use_pi_gpio:
-                GPIO.output(self.pins["cooler"], GPIO.LOW)
-                GPIO.output(self.pins["ventilation_low"], GPIO.LOW)
-                GPIO.output(self.pins["ventilation_med"], GPIO.LOW)
-                GPIO.output(self.pins["ventilation_high"], GPIO.LOW)
-                GPIO.output(self.pins["humidifier"], GPIO.LOW)
+                GPIO.output(self.pins["cooler"],           GPIO.LOW)
+                GPIO.output(self.pins.get("ventilation_low",  0), GPIO.LOW)
+                GPIO.output(self.pins.get("ventilation_med",  0), GPIO.LOW)
+                GPIO.output(self.pins.get("ventilation_high", 0), GPIO.LOW)
+                GPIO.output(self.pins["humidifier"],       GPIO.LOW)
             self._dispatch_state()
 
     def cleanup(self):
