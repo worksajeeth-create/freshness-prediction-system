@@ -1,4 +1,18 @@
-"""Main Flask application for the rebuilt Food Freshness Monitoring System."""
+"""Main Flask application for the Food Freshness Monitoring System.
+
+Changes in this version:
+  - sensor_data now tracks BOTH climate sources:
+      storage chamber       → temperature / humidity       (AM2301, GPIO27)
+      MQ sensor chamber     → sensor_chamber_temperature / sensor_chamber_humidity (DHT22, GPIO14)
+  - sensor_callback routes the new MQTT topic paths emitted by the ESP32.
+  - emit_full_state() emits a dedicated 'climate_update' event carrying both chambers.
+  - /api/current_data includes sensor_chamber fields.
+  - Actuator commands carry an explicit 'duration_s' field (default 60 s) that
+    the Pi respects when dispatching to the ESP; the ESP32 independently enforces
+    its own 60-second hardware timer for safety.
+  - MQTT subscription list includes foodmon/actuators/status so the Pi can
+    mirror the ESP32's reported actuator state (useful after an ESP reboot).
+"""
 from __future__ import annotations
 
 import json
@@ -18,6 +32,7 @@ from ml_engine import MLEngine
 from mqtt_handler import MQTTHandler
 from session_manager import SessionManager
 
+# ─── Flask + SocketIO setup ───────────────────────────────────────────
 app = Flask(
     __name__,
     template_folder=str(config.FRONTEND_DIR),
@@ -27,22 +42,24 @@ app.config["SECRET_KEY"] = config.SECRET_KEY
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
+# ─── Shared singletons (initialised in init_system) ──────────────────
 mqtt_handler: MQTTHandler | None = None
 ml_engine: MLEngine | None = None
 actuator_controller: ActuatorController | None = None
 cloud_client = CloudClient()
 session_manager = SessionManager()
 
-# ── Sensor data now separates storage chamber from sensor chamber ──────────────
+# ─────────────────────────────────────────────────────────────────────
+#  SHARED STATE DICTS
+# ─────────────────────────────────────────────────────────────────────
 sensor_data: Dict[str, Any] = {
-    "storage": {
-        "temperature": None,   # AM2301 / DHT inside the food storage chamber
-        "humidity": None,
-    },
-    "sensor_chamber": {
-        "temperature": None,   # DHT22 near the gas sensors
-        "humidity": None,
-    },
+    # Food storage chamber (AM2301 – GPIO27)
+    "temperature": None,
+    "humidity": None,
+    # MQ sensor chamber (DHT22 – GPIO14)
+    "sensor_chamber_temperature": None,
+    "sensor_chamber_humidity": None,
+    # Gas sensors
     "gases": {},
     "timestamp": None,
     "device_status": "offline",
@@ -59,11 +76,46 @@ actuator_status: Dict[str, Any] = {
     "cooler": False,
     "ventilation": "OFF",
     "humidifier": False,
+    "light": False,
+    "buzzer": False,
+    # Timer info mirrored from ESP32 reports
+    "actuator_timer_on": False,
+    "actuator_remaining_s": 0,
 }
 
 state_lock = threading.Lock()
 
+# ─── Manual override tracking ─────────────────────────────────────────
+# Instead of maintaining a separate Pi-side clock, we read directly from
+# the ESP32's reported actuator_timer_on field (populated by the
+# foodmon/actuators/status topic).  This is always accurate because the
+# ESP reports its real hardware timer state after every change.
+# The local fallback clock is kept only for the brief window between
+# sending a manual command and receiving the first ESP status report.
+_manual_override_until: float = 0.0
 
+
+def _manual_override_active() -> bool:
+    """Return True if the ESP's manual timer is running OR our local
+    fallback clock hasn't expired yet."""
+    # Primary: trust the ESP's own reported state
+    if actuator_status.get("actuator_timer_on", False):
+        return True
+    # Fallback: local clock covers the gap before first ESP report arrives
+    return time.time() < _manual_override_until
+
+
+def _set_manual_override() -> None:
+    global _manual_override_until
+    # Give a short local window (10 s) — just enough for the first ESP
+    # status report to arrive and take over tracking.
+    _manual_override_until = time.time() + 10
+    print("[override] Manual command sent — ML dispatch suppressed until ESP confirms timer.")
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  HELPERS
+# ─────────────────────────────────────────────────────────────────────
 def save_latest_data() -> None:
     payload = {
         "sensor_data": sensor_data,
@@ -75,22 +127,33 @@ def save_latest_data() -> None:
 
 
 def emit_full_state() -> None:
+    """Push every state slice to connected dashboard clients."""
     socketio.emit("sensor_update", sensor_data, namespace="/")
     socketio.emit("ml_update", ml_results, namespace="/")
     socketio.emit("actuator_update", actuator_status, namespace="/")
     socketio.emit("session_update", session_manager.get(), namespace="/")
+    # Dedicated climate event carrying both chambers
+    socketio.emit(
+        "climate_update",
+        {
+            "storage": {
+                "temperature": sensor_data["temperature"],
+                "humidity": sensor_data["humidity"],
+            },
+            "sensor_chamber": {
+                "temperature": sensor_data["sensor_chamber_temperature"],
+                "humidity": sensor_data["sensor_chamber_humidity"],
+            },
+        },
+        namespace="/",
+    )
 
 
 def extract_flat_sensor_values() -> Dict[str, float]:
-    """Return a flat dict suitable for ML inference.
-
-    Uses storage-chamber temperature/humidity as the primary climate signal
-    because that is what the food is exposed to.
-    """
-    storage = sensor_data.get("storage", {})
-    flat = {
-        "temperature": float(storage.get("temperature") or 0.0),
-        "humidity":    float(storage.get("humidity")    or 0.0),
+    """Flatten sensor_data into a single dict for ML / cloud payloads."""
+    flat: Dict[str, float] = {
+        "temperature": float(sensor_data["temperature"] or 0.0),
+        "humidity": float(sensor_data["humidity"] or 0.0),
     }
     for gas in config.SELECTABLE_GAS_SENSORS:
         raw = sensor_data["gases"].get(gas, {})
@@ -109,101 +172,96 @@ def append_cloud_reading() -> None:
         "food_name": session.get("food_name"),
         "selected_sensors": session.get("selected_sensors", []),
         "timestamp": sensor_data.get("timestamp"),
+        "sensor_chamber_temperature": sensor_data.get("sensor_chamber_temperature"),
+        "sensor_chamber_humidity": sensor_data.get("sensor_chamber_humidity"),
         **flat,
-        # Also persist raw sensor chamber data for analysis
-        "sc_temperature": sensor_data["sensor_chamber"].get("temperature"),
-        "sc_humidity":    sensor_data["sensor_chamber"].get("humidity"),
     }
     try:
         cloud_client.append_reading(session["session_id"], payload)
     except Exception as exc:
-        print(f"Cloud append_reading failed: {exc}")
+        print(f"[Cloud] append_reading failed: {exc}")
 
 
 def run_ml_and_control() -> None:
     session = session_manager.get()
     if session.get("status") != "running" or not session.get("food_name"):
         return
-    storage = sensor_data.get("storage", {})
-    if storage.get("temperature") is None or storage.get("humidity") is None:
+    if sensor_data["temperature"] is None or sensor_data["humidity"] is None:
         return
     if not ml_engine or not actuator_controller:
         return
 
     flat = extract_flat_sensor_values()
-    prediction = ml_engine.predict(session["food_name"], flat, session.get("selected_sensors", []))
+    prediction = ml_engine.predict(
+        session["food_name"], flat, session.get("selected_sensors", [])
+    )
     if not prediction:
         return
 
     ml_results["freshness_index"] = prediction["freshness_index"]
-    ml_results["status"]          = prediction["status"]
-    ml_results["status_color"]    = prediction["status_color"]
-    ml_results["remaining_days"]  = prediction["remaining_days"]
-    ml_results["history"].append({
-        "timestamp": sensor_data["timestamp"],
-        "freshness": prediction["freshness_index"],
-    })
+    ml_results["status"] = prediction["status"]
+    ml_results["status_color"] = prediction["status_color"]
+    ml_results["remaining_days"] = prediction["remaining_days"]
+    ml_results["history"].append(
+        {"timestamp": sensor_data["timestamp"], "freshness": prediction["freshness_index"]}
+    )
     ml_results["history"] = ml_results["history"][-config.DASHBOARD_HISTORY_LIMIT:]
+
+    # ── Skip actuator dispatch while a manual override is active ─────
+    # The manual command already told the ESP what to do; if the ML
+    # controller also publishes a command every 2 s it will either reset
+    # the 60-second timer or turn actuators off — both are wrong.
+    if _manual_override_active():
+        return
 
     new_status = actuator_controller.update(
         session["food_name"],
         flat,
         prediction,
         session.get("selected_sensors", []),
+        suppress_dispatch=False,   # ML is in control — dispatch normally
     )
-    actuator_status.update(new_status)
+    # Preserve timer fields that come from ESP reports
+    actuator_status.update({
+        k: v for k, v in new_status.items()
+        if k not in ("actuator_timer_on", "actuator_remaining_s")
+    })
 
 
-# ── MQTT callback ──────────────────────────────────────────────────────────────
-
+# ─────────────────────────────────────────────────────────────────────
+#  MQTT SENSOR CALLBACK
+# ─────────────────────────────────────────────────────────────────────
 def sensor_callback(topic: str, data: Dict[str, Any]) -> None:
+    """Route every MQTT message from the ESP32 into the shared state."""
     with state_lock:
         try:
             ts = data.get("timestamp", int(time.time()))
 
+            # ── Device heartbeat ──────────────────────────────────────
             if topic == "foodmon/device/status":
                 sensor_data["device_status"] = data.get("status", "online")
                 sensor_data["timestamp"] = ts
 
-            # ── Storage chamber ───────────────────────────────────────────────
-            elif topic == "foodmon/sensors/storage/temperature":
-                sensor_data["storage"]["temperature"] = data.get("value")
+            # ── Food storage chamber — AM2301 (GPIO27) ────────────────
+            elif topic == "foodmon/sensors/environmental/storage/temperature":
+                sensor_data["temperature"] = data.get("value")
                 sensor_data["timestamp"] = ts
 
-            elif topic == "foodmon/sensors/storage/humidity":
-                sensor_data["storage"]["humidity"] = data.get("value")
+            elif topic == "foodmon/sensors/environmental/storage/humidity":
+                sensor_data["humidity"] = data.get("value")
                 sensor_data["timestamp"] = ts
 
-            # ── Sensor chamber ────────────────────────────────────────────────
-            elif topic == "foodmon/sensors/sensor_chamber/temperature":
-                sensor_data["sensor_chamber"]["temperature"] = data.get("value")
+            # ── MQ sensor chamber — DHT22 (GPIO14) ────────────────────
+            elif topic == "foodmon/sensors/environmental/sensor_chamber/temperature":
+                sensor_data["sensor_chamber_temperature"] = data.get("value")
                 sensor_data["timestamp"] = ts
 
-            elif topic == "foodmon/sensors/sensor_chamber/humidity":
-                sensor_data["sensor_chamber"]["humidity"] = data.get("value")
+            elif topic == "foodmon/sensors/environmental/sensor_chamber/humidity":
+                sensor_data["sensor_chamber_humidity"] = data.get("value")
                 sensor_data["timestamp"] = ts
 
-            # ── Legacy / environmental wildcard fallback ──────────────────────
-            # Supports old topic pattern  foodmon/sensors/environmental/#
-            elif "environmental" in topic:
-                parts = topic.split("/")
-                # e.g. foodmon/sensors/environmental/storage/temperature
-                #       0       1          2              3        4
-                if len(parts) >= 5:
-                    location = parts[3]   # storage | sensor_chamber
-                    measure  = parts[4]   # temperature | humidity
-                    if location in ("storage", "sensor_chamber") and measure in ("temperature", "humidity"):
-                        sensor_data[location][measure] = data.get("value")
-                        sensor_data["timestamp"] = ts
-                else:
-                    # Very old flat format — put into storage as fallback
-                    measure = parts[-1]
-                    if measure in ("temperature", "humidity"):
-                        sensor_data["storage"][measure] = data.get("value")
-                        sensor_data["timestamp"] = ts
-
-            # ── Gas sensors ───────────────────────────────────────────────────
-            elif "gas" in topic:
+            # ── Gas sensors ───────────────────────────────────────────
+            elif topic.startswith("foodmon/sensors/gas/"):
                 sensor_name = topic.split("/")[-1]
                 if sensor_name in config.SELECTABLE_GAS_SENSORS:
                     sensor_data["gases"][sensor_name] = {
@@ -213,6 +271,19 @@ def sensor_callback(topic: str, data: Dict[str, Any]) -> None:
                     }
                     sensor_data["timestamp"] = ts
 
+            # ── Actuator status report from ESP32 ─────────────────────
+            # The ESP32 publishes its live actuator state (including timer
+            # countdown) to foodmon/actuators/status after every change.
+            elif topic == "foodmon/actuators/status":
+                actuator_status["cooler"]               = data.get("cooler", False)
+                actuator_status["ventilation"]          = data.get("ventilation", "OFF")
+                actuator_status["humidifier"]           = data.get("humidifier", False)
+                actuator_status["light"]                = data.get("light", False)
+                actuator_status["buzzer"]               = data.get("buzzer", False)
+                actuator_status["actuator_timer_on"]    = data.get("actuator_timer_on", False)
+                actuator_status["actuator_remaining_s"] = data.get("actuator_remaining_s", 0)
+
+            # ── Run ML + control logic when session is active ─────────
             session = session_manager.get()
             if session.get("status") == "running":
                 append_cloud_reading()
@@ -222,11 +293,12 @@ def sensor_callback(topic: str, data: Dict[str, Any]) -> None:
             save_latest_data()
 
         except Exception as exc:
-            print(f"sensor_callback error: {exc}")
+            print(f"[sensor_callback] Error: {exc}")
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
-
+# ─────────────────────────────────────────────────────────────────────
+#  ROUTES — Pages
+# ─────────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -242,6 +314,9 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+# ─────────────────────────────────────────────────────────────────────
+#  ROUTES — API
+# ─────────────────────────────────────────────────────────────────────
 @app.route("/api/foods", methods=["GET"])
 def get_foods():
     return jsonify({
@@ -254,7 +329,8 @@ def get_foods():
 @app.route("/api/sensors", methods=["GET"])
 def get_sensors():
     sensor_list = [
-        {"id": sid, **config.SENSOR_METADATA[sid]} for sid in config.SELECTABLE_GAS_SENSORS
+        {"id": sid, **config.SENSOR_METADATA[sid]}
+        for sid in config.SELECTABLE_GAS_SENSORS
     ]
     return jsonify({"success": True, "sensors": sensor_list})
 
@@ -285,7 +361,7 @@ def start_session():
                 "selected_sensors": valid_sensors,
             })
         except Exception as exc:
-            print(f"Cloud session start failed: {exc}")
+            print(f"[Cloud] session start failed: {exc}")
 
         if mqtt_handler:
             mqtt_handler.publish(config.MQTT_CONTROL_TOPICS["start"], {
@@ -312,7 +388,7 @@ def stop_session():
                     "timestamp": int(time.time()),
                 })
         except Exception as exc:
-            print(f"Cloud session stop failed: {exc}")
+            print(f"[Cloud] session stop failed: {exc}")
 
         if mqtt_handler:
             mqtt_handler.publish(config.MQTT_CONTROL_TOPICS["stop"], {
@@ -323,6 +399,7 @@ def stop_session():
 
         emit_full_state()
         save_latest_data()
+
     return jsonify({"success": True, "session": session})
 
 
@@ -331,62 +408,108 @@ def session_status():
     return jsonify({"success": True, "session": session_manager.get()})
 
 
-@app.route("/api/manual_actuator", methods=["POST"])
-def manual_actuator():
-    """Send a manual actuator command to the ESP via MQTT.
-
-    Blocked while a monitoring session is running — the ML engine owns
-    the actuators in that state.
-    """
-    if session_manager.is_running():
-        return jsonify({
-            "success": False,
-            "message": "Manual control is disabled during an active monitoring session.",
-        }), 403
-
-    data = request.json or {}
-
-    # Validate and normalise inputs
-    cooler     = bool(data.get("cooler", False))
-    humidifier = bool(data.get("humidifier", False))
-    vent_raw   = str(data.get("ventilation", "OFF")).upper()
-    ventilation = vent_raw if vent_raw in ("OFF", "LOW", "MEDIUM", "HIGH") else "OFF"
-
-    payload = {
-        "command":     "set_actuators",
-        "cooler":      cooler,
-        "ventilation": ventilation,
-        "humidifier":  humidifier,
-        "source":      "manual",
-        "timestamp":   int(time.time()),
-    }
-
-    # Update in-memory actuator state so dashboard reflects manual commands
-    with state_lock:
-        actuator_status["cooler"]      = cooler
-        actuator_status["ventilation"] = ventilation
-        actuator_status["humidifier"]  = humidifier
-        socketio.emit("actuator_update", actuator_status, namespace="/")
-
-    if mqtt_handler:
-        mqtt_handler.publish(config.ESP_ACTUATOR_COMMAND_TOPIC, payload)
-
-    return jsonify({"success": True, "sent": payload})
-
-
 @app.route("/api/current_data", methods=["GET"])
 def current_data():
     return jsonify({
         "success": True,
-        "sensor_data": sensor_data,
+        "sensor_data": {
+            # Storage chamber
+            "temperature": sensor_data["temperature"],
+            "humidity": sensor_data["humidity"],
+            # Sensor chamber
+            "sensor_chamber_temperature": sensor_data["sensor_chamber_temperature"],
+            "sensor_chamber_humidity": sensor_data["sensor_chamber_humidity"],
+            # Gas + meta
+            "gases": sensor_data["gases"],
+            "timestamp": sensor_data["timestamp"],
+            "device_status": sensor_data["device_status"],
+        },
         "ml_results": ml_results,
         "actuator_status": actuator_status,
         "session": session_manager.get(),
     })
 
 
-# ── Socket.IO ──────────────────────────────────────────────────────────────────
+@app.route("/api/manual_actuator", methods=["POST"])
+def manual_actuator():
+    """
+    Send a manual actuator command to the ESP32 via MQTT.
 
+    Expected JSON body (all keys optional — omit to keep current state):
+    {
+        "cooler":      true | false,
+        "ventilation": "OFF" | "LOW" | "MEDIUM" | "HIGH",
+        "humidifier":  true | false,
+        "light":       true | false,
+        "buzzer":      true | false
+    }
+
+    The ESP32 will run the requested actuators for exactly 60 seconds
+    then automatically switch them all off (hardware-enforced timer).
+    Each call to this endpoint resets the 60-second countdown.
+    """
+    data = request.json or {}
+
+    # Validate ventilation value if present
+    valid_vent_levels = {"OFF", "LOW", "MEDIUM", "HIGH"}
+    if "ventilation" in data and data["ventilation"] not in valid_vent_levels:
+        return jsonify({
+            "success": False,
+            "message": f"ventilation must be one of {sorted(valid_vent_levels)}",
+        }), 400
+
+    # Build the MQTT payload — only include keys the caller sent
+    allowed_keys = {"cooler", "ventilation", "humidifier", "light", "buzzer"}
+    command = {k: v for k, v in data.items() if k in allowed_keys}
+
+    if not command:
+        return jsonify({"success": False, "message": "No valid actuator keys provided"}), 400
+
+    # Tag the command so ESP32 knows this is a manual (dashboard) command
+    # and not an ML-driven one.  The ESP rejects ML commands while the
+    # manual timer is running, so this flag is essential.
+    command["manual"]     = True
+    command["command"]    = "set_actuators"
+    command["device_id"]  = config.DEVICE_ID
+    command["timestamp"]  = int(time.time())
+
+    with state_lock:
+        if not mqtt_handler:
+            return jsonify({"success": False, "message": "MQTT handler not initialised"}), 503
+        if not mqtt_handler.connected:
+            return jsonify({"success": False, "message": "MQTT broker not connected"}), 503
+
+        mqtt_handler.publish(config.ESP_ACTUATOR_COMMAND_TOPIC, command)
+
+        # Block ML actuator control for the full 60-second window so it
+        # cannot fight the manual command with its own MQTT publishes.
+        _set_manual_override()
+
+        # Mirror the requested state into actuator_status optimistically
+        # (will be overwritten by the real ESP32 report within ~1 s)
+        for key in ("cooler", "ventilation", "humidifier", "light", "buzzer"):
+            if key in data:
+                actuator_status[key] = data[key]
+
+        # Mark timer as active from the Pi side too so the dashboard
+        # can show the countdown without waiting for the ESP report
+        actuator_status["actuator_timer_on"]    = True
+        actuator_status["actuator_remaining_s"] = int(config.ACTUATOR_RUN_SECONDS)
+
+        emit_full_state()
+        save_latest_data()
+
+    print(f"[manual_actuator] Command sent to ESP32: {command}")
+    return jsonify({
+        "success": True,
+        "command_sent": command,
+        "actuator_timeout_s": config.ACTUATOR_RUN_SECONDS,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  SOCKETIO EVENTS
+# ─────────────────────────────────────────────────────────────────────
 @socketio.on("connect")
 def handle_connect():
     emit("connection_response", {"status": "connected"})
@@ -394,6 +517,16 @@ def handle_connect():
     emit("ml_update", ml_results)
     emit("actuator_update", actuator_status)
     emit("session_update", session_manager.get())
+    emit("climate_update", {
+        "storage": {
+            "temperature": sensor_data["temperature"],
+            "humidity": sensor_data["humidity"],
+        },
+        "sensor_chamber": {
+            "temperature": sensor_data["sensor_chamber_temperature"],
+            "humidity": sensor_data["sensor_chamber_humidity"],
+        },
+    })
 
 
 @socketio.on("request_update")
@@ -402,24 +535,47 @@ def handle_request_update():
     emit("ml_update", ml_results)
     emit("actuator_update", actuator_status)
     emit("session_update", session_manager.get())
+    emit("climate_update", {
+        "storage": {
+            "temperature": sensor_data["temperature"],
+            "humidity": sensor_data["humidity"],
+        },
+        "sensor_chamber": {
+            "temperature": sensor_data["sensor_chamber_temperature"],
+            "humidity": sensor_data["sensor_chamber_humidity"],
+        },
+    })
 
 
-# ── Background threads ─────────────────────────────────────────────────────────
-
-def watchdog_loop():
+# ─────────────────────────────────────────────────────────────────────
+#  BACKGROUND THREADS
+# ─────────────────────────────────────────────────────────────────────
+def watchdog_loop() -> None:
+    """Safe-off actuators if no sensor data has arrived for >60 s."""
     while True:
         time.sleep(5)
         if actuator_controller:
             actuator_controller.safe_shutdown_if_stale()
 
 
-def init_system():
+# ─────────────────────────────────────────────────────────────────────
+#  SYSTEM INITIALISATION
+# ─────────────────────────────────────────────────────────────────────
+def init_system() -> None:
     global mqtt_handler, ml_engine, actuator_controller
-    mqtt_handler = MQTTHandler(callback=sensor_callback)
+
+    # Subscribe to the new actuators/status topic in addition to the
+    # default topics defined in config.MQTT_SENSOR_TOPICS
+    extra_topics = [("foodmon/actuators/status", 1)]
+
+    mqtt_handler = MQTTHandler(callback=sensor_callback, extra_topics=extra_topics)
     mqtt_handler.start()
+
     ml_engine = MLEngine(model_dir=str(config.MODEL_DIR))
     ml_engine.load_models()
+
     actuator_controller = ActuatorController(mqtt_handler=mqtt_handler)
+
     threading.Thread(target=watchdog_loop, daemon=True).start()
 
 
