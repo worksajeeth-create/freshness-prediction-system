@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     await checkSessionStatus();
 });
 
+
 async function checkSessionStatus() {
     try {
         const res = await fetch('/api/session_status');
@@ -50,7 +51,7 @@ async function checkSessionStatus() {
         currentSession = data.session || null;
         sessionStatus = currentSession?.status || 'idle';
         if (currentSession?.food_name) currentFood = currentSession.food_name;
-        activeGasSensors = currentSession?.selected_sensors?.length ? currentSession.selected_sensors : [];
+        activeGasSensors = Object.keys(SENSOR_META);
         updateHeaderLabels();
         initGasChart();
         buildLegend();
@@ -58,6 +59,7 @@ async function checkSessionStatus() {
         console.error('session status error', e);
     }
 }
+
 
 function updateHeaderLabels() {
     const title = document.getElementById('food-title');
@@ -77,8 +79,8 @@ function updateHeaderLabels() {
 function initGasChart() {
     const ctx = document.getElementById('gas-chart').getContext('2d');
     if (gasChart) gasChart.destroy();
-    const selected = activeGasSensors.length ? activeGasSensors : [];
-    const datasets = selected.map(sensorId => ({
+
+    const datasets = Object.keys(SENSOR_META).map(sensorId => ({
         label: SENSOR_META[sensorId].name,
         sensorId,
         data: [],
@@ -87,7 +89,8 @@ function initGasChart() {
         borderWidth: 1.5,
         pointRadius: 0,
         tension: 0.3,
-        fill: false
+        fill: false,
+        spanGaps: false
     }));
 
     gasChart = new Chart(ctx, {
@@ -106,14 +109,11 @@ function initGasChart() {
     });
 }
 
+
 function buildLegend() {
     const container = document.getElementById('gas-legend');
     container.innerHTML = '';
-    if (!activeGasSensors.length) {
-        container.innerHTML = '<div class="legend-empty">No gas sensors selected for the current session.</div>';
-        return;
-    }
-    activeGasSensors.forEach(sensorId => {
+    Object.keys(SENSOR_META).forEach(sensorId => {
         const meta = SENSOR_META[sensorId];
         const item = document.createElement('div');
         item.className = 'legend-item';
@@ -122,22 +122,36 @@ function buildLegend() {
     });
 }
 
+
+
 function updateGasChart(gases, timestamp) {
-    if (!gasChart || !activeGasSensors.length) return;
-    const d = new Date(timestamp * 1000);
-    const lbl = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    if (!gasChart) return;
+
+    const ts = timestamp > 1000000000 ? timestamp : (Date.now() / 1000);
+    const d = new Date(ts * 1000);
+    const lbl = d.toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
+
     gasChart.data.labels.push(lbl);
     if (gasChart.data.labels.length > GAS_HISTORY_MAX) gasChart.data.labels.shift();
 
     gasChart.data.datasets.forEach(ds => {
         const raw = gases[ds.sensorId];
-        const ppm = raw !== undefined ? (typeof raw === 'object' ? (raw.value ?? 0) : raw) : 0;
-        ds.data.push(parseFloat(Number(ppm).toFixed(2)));
+        if (raw !== undefined) {
+            const ppm = typeof raw === 'object' ? (raw.value ?? 0) : raw;
+            ds.data.push(parseFloat(Number(ppm).toFixed(2)));
+        } else {
+            ds.data.push(null);
+        }
         if (ds.data.length > GAS_HISTORY_MAX) ds.data.shift();
     });
+
     gasChart.update('none');
     document.getElementById('gas-timestamp').textContent = lbl;
 }
+
+
 
 function initFreshnessChart() {
     const ctx = document.getElementById('freshness-chart').getContext('2d');
@@ -171,30 +185,23 @@ socket.on('connect', function () {
     socket.emit('request_update');
 });
 
+
 socket.on('session_update', function (session) {
     currentSession = session;
     sessionStatus = session?.status || 'idle';
     if (session?.food_name) currentFood = session.food_name;
-    activeGasSensors = session?.selected_sensors?.length ? session.selected_sensors : [];
     updateHeaderLabels();
-    initGasChart();
-    buildLegend();
 });
+
 
 socket.on('sensor_update', function (data) {
     lastSensorUpdateMs = Date.now();
 
     // ── Storage climate ──────────────────────────────────────────────────────
-    const storage = data.storage || {};
-    const storageTemp = storage.temperature;
-    const storageHum  = storage.humidity;
-
-    // Fallback: older backends that send flat temperature/humidity
-    const flatTemp = data.temperature;
-    const flatHum  = data.humidity;
-
-    const displayTemp = storageTemp != null ? storageTemp : flatTemp;
-    const displayHum  = storageHum  != null ? storageHum  : flatHum;
+    // app.py emits sensor_data flat: { temperature, humidity,
+    //   sensor_chamber_temperature, sensor_chamber_humidity, gases, ... }
+    const displayTemp = data.temperature;
+    const displayHum  = data.humidity;
 
     if (displayTemp != null) {
         tempGauge.update(displayTemp);
@@ -205,7 +212,40 @@ socket.on('sensor_update', function (data) {
         document.getElementById('humidity-value').textContent = displayHum.toFixed(1) + '%';
     }
 
-    // ── Sensor chamber climate ───────────────────────────────────────────────
+    // ── Sensor chamber climate (flat keys from app.py) ───────────────────────
+    const scTemp = data.sensor_chamber_temperature;
+    const scHum  = data.sensor_chamber_humidity;
+
+    if (scTemp != null) {
+        scTempGauge.update(scTemp);
+        document.getElementById('sc-temp-value').textContent = scTemp.toFixed(1) + '°C';
+    }
+    if (scHum != null) {
+        scHumidityGauge.update(scHum);
+        document.getElementById('sc-humidity-value').textContent = scHum.toFixed(1) + '%';
+    }
+
+    // ── Gas readings ─────────────────────────────────────────────────────────
+    if (data.gases && data.timestamp) {
+        updateGasChart(data.gases, data.timestamp);
+    }
+});
+
+
+// ── Climate update (nested structure emitted alongside sensor_update) ─────────
+// app.py also emits a dedicated 'climate_update' with { storage:{}, sensor_chamber:{} }.
+// This handler catches it so either event path works.
+socket.on('climate_update', function (data) {
+    const storage = data.storage || {};
+    if (storage.temperature != null) {
+        tempGauge.update(storage.temperature);
+        document.getElementById('temp-value').textContent = storage.temperature.toFixed(1) + '°C';
+    }
+    if (storage.humidity != null) {
+        humidityGauge.update(storage.humidity);
+        document.getElementById('humidity-value').textContent = storage.humidity.toFixed(1) + '%';
+    }
+
     const sc = data.sensor_chamber || {};
     if (sc.temperature != null) {
         scTempGauge.update(sc.temperature);
@@ -215,12 +255,8 @@ socket.on('sensor_update', function (data) {
         scHumidityGauge.update(sc.humidity);
         document.getElementById('sc-humidity-value').textContent = sc.humidity.toFixed(1) + '%';
     }
-
-    // ── Gas readings ─────────────────────────────────────────────────────────
-    if (data.gases && data.timestamp) {
-        updateGasChart(data.gases, data.timestamp);
-    }
 });
+
 
 socket.on('ml_update', function (data) {
     if (data.freshness_index != null) {
