@@ -7,20 +7,56 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="home-screen">
+
+    <!-- ── Power confirm overlay ────────────────────────────────────── -->
+    <div id="power-overlay" class="power-overlay hidden">
+        <div class="power-overlay-box">
+            <div class="power-overlay-title">Shut down system?</div>
+            <div class="power-overlay-sub">The display will go dark.</div>
+            <div class="power-overlay-actions">
+                <button id="power-cancel-btn" class="secondary-button small-btn">Cancel</button>
+                <button id="power-confirm-btn" class="danger-button small-btn">Shut Down</button>
+            </div>
+        </div>
+    </div>
+
     <div class="home-container compact-home">
         <div class="project-title">INTELLIGENT FOOD<br>FRESHNESS MONITORING SYSTEM</div>
         <div class="datetime-display">
             <div id="current-date" class="date-text"></div>
             <div id="current-time" class="time-text"></div>
         </div>
+
+        <!-- Top nav button — full width -->
         <div class="home-button-stack">
             <button id="go-dashboard" class="primary-button home-main-button">▶ Live Monitoring</button>
-            <button id="go-control" class="secondary-button home-main-button">⚙ System Control</button>
+
+            <!-- Bottom row: Light | System Control | Power -->
+            <div class="home-bottom-row">
+                <button id="light-btn" class="home-icon-btn light-btn" title="Toggle light">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 3C8.69 3 6 5.69 6 9c0 2.12 1.09 3.99 2.75 5.12V16a1 1 0 0 0 1 1h4.5a1 1 0 0 0 1-1v-1.88C16.91 12.99 18 11.12 18 9c0-3.31-2.69-6-6-6Z"
+                              stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
+                        <path d="M9.75 17h4.5M10.5 19.5h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </button>
+
+                <button id="go-control" class="secondary-button home-main-button home-ctrl-btn">⚙ System Control</button>
+
+                <button id="power-btn" class="home-icon-btn power-btn" title="Shut down">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <line x1="12" y1="3" x2="12" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        <path d="M7 6.5A8 8 0 1 0 17 6.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+                    </svg>
+                </button>
+            </div>
         </div>
+
         <div id="boot-status" class="boot-status">Checking last session...</div>
     </div>
 
     <script>
+        /* ── Date / time ────────────────────────────────────────────── */
         function updateDateTime() {
             const now = new Date();
             document.getElementById('current-date').textContent = now.toLocaleDateString('en-US', {
@@ -30,26 +66,79 @@
                 hour: '2-digit', minute: '2-digit', hour12: true
             });
         }
+
+        /* ── Boot status ────────────────────────────────────────────── */
         async function loadBootStatus() {
             const el = document.getElementById('boot-status');
             try {
-                const res = await fetch('/api/session_status');
+                const res  = await fetch('/api/session_status');
                 const data = await res.json();
                 const session = data.session || {};
-                if (session.status === 'running') {
-                    el.textContent = 'Session running';
-                } else {
-                    el.textContent = 'System ready';
-                }
+                el.textContent = session.status === 'running' ? 'Session running' : 'System ready';
             } catch {
                 el.textContent = 'System ready';
             }
         }
+
+        /* ── Light button ───────────────────────────────────────────── */
+        let lightOn = false;
+        const lightBtn = document.getElementById('light-btn');
+
+        async function fetchLightState() {
+            try {
+                const res  = await fetch('/api/light_status');
+                const data = await res.json();
+                lightOn = !!data.light;
+                syncLightUI();
+            } catch { /* default off */ }
+        }
+
+        function syncLightUI() {
+            lightBtn.classList.toggle('light-btn-on', lightOn);
+            lightBtn.title = lightOn ? 'Light is ON — tap to turn off' : 'Tap to turn on light';
+        }
+
+        lightBtn.addEventListener('click', async () => {
+            lightOn = !lightOn;
+            syncLightUI();
+            try {
+                await fetch('/api/toggle_light', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ light: lightOn })
+                });
+            } catch {
+                lightOn = !lightOn;   // revert on error
+                syncLightUI();
+            }
+        });
+
+        /* ── Power button ───────────────────────────────────────────── */
+        const powerOverlay  = document.getElementById('power-overlay');
+        const powerCancel   = document.getElementById('power-cancel-btn');
+        const powerConfirm  = document.getElementById('power-confirm-btn');
+
+        document.getElementById('power-btn').addEventListener('click', () => {
+            powerOverlay.classList.remove('hidden');
+        });
+        powerCancel.addEventListener('click', () => {
+            powerOverlay.classList.add('hidden');
+        });
+        powerConfirm.addEventListener('click', async () => {
+            powerConfirm.textContent = 'Shutting down…';
+            powerConfirm.disabled    = true;
+            try { await fetch('/api/system/poweroff', { method: 'POST' }); } catch {}
+        });
+
+        /* ── Nav ────────────────────────────────────────────────────── */
         document.getElementById('go-dashboard').addEventListener('click', () => window.location.href = '/dashboard');
-        document.getElementById('go-control').addEventListener('click', () => window.location.href = '/system-control');
+        document.getElementById('go-control').addEventListener('click',   () => window.location.href = '/system-control');
+
+        /* ── Boot ───────────────────────────────────────────────────── */
         updateDateTime();
         setInterval(updateDateTime, 1000);
         loadBootStatus();
+        fetchLightState();
     </script>
 </body>
 </html>
