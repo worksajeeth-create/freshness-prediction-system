@@ -20,7 +20,7 @@ SECRET_KEY  = os.getenv("FOODMON_SECRET_KEY",  "foodmon_change_me")
 # ─── MQTT ─────────────────────────────────────────────────────────────
 MQTT_BROKER    = os.getenv("FOODMON_MQTT_BROKER",    "localhost")
 MQTT_PORT_NUM  = int(os.getenv("FOODMON_MQTT_PORT",  "1883"))
-MQTT_PORT      = MQTT_PORT_NUM          # alias kept for compatibility
+MQTT_PORT      = MQTT_PORT_NUM
 MQTT_KEEPALIVE = 60
 MQTT_CLIENT_ID = os.getenv("FOODMON_MQTT_CLIENT_ID", "RaspberryPi_FoodMon")
 MQTT_USERNAME  = os.getenv("FOODMON_MQTT_USERNAME",  "")
@@ -48,30 +48,34 @@ REQUEST_TIMEOUT      = 8
 ENABLE_CLOUD_SYNC    = os.getenv("FOODMON_ENABLE_CLOUD_SYNC",  "true").lower() == "true"
 
 # ─── Actuators ────────────────────────────────────────────────────────
-# Topic the Pi publishes actuator commands to (ESP32 subscribes to this)
-ACTUATOR_CONTROL_MODE       = os.getenv("FOODMON_ACTUATOR_CONTROL_MODE", "esp").lower()
-ESP_ACTUATOR_COMMAND_TOPIC  = os.getenv(
+ACTUATOR_CONTROL_MODE      = os.getenv("FOODMON_ACTUATOR_CONTROL_MODE", "esp").lower()
+
+# Topic for cooler / ventilation / humidifier / buzzer (60-second timer)
+ESP_ACTUATOR_COMMAND_TOPIC = os.getenv(
     "FOODMON_ESP_ACTUATOR_COMMAND_TOPIC", "foodmon/control/actuators"
 )
 
-# How long (seconds) actuators run after each command.
-# The ESP32 enforces this independently in hardware.
-# This value is reported back to the dashboard for the countdown display.
+# Dedicated topic for the light relay — no timer, plain ON/OFF
+ESP_LIGHT_COMMAND_TOPIC    = os.getenv(
+    "FOODMON_ESP_LIGHT_COMMAND_TOPIC", "foodmon/control/light"
+)
+
+# How long (seconds) timed actuators run after each command.
 ACTUATOR_RUN_SECONDS = int(os.getenv("FOODMON_ACTUATOR_RUN_SECONDS", "60"))
 
 ACTUATOR_PINS = {
-    "cooler":    19,   # 12V Peltier  (GPIO19 on ESP32)
-    "cool_fan":  18,   # 12V cooling fans
-    "ventilation": 26, # 5V blower fan (PWM)
-    "humidifier": 25,  # 5V mist maker
-    "buzzer":    23,   # 5V buzzer
-    "light":      5,   # 5V relay (active-LOW)
+    "cooler":    19,
+    "cool_fan":  18,
+    "ventilation": 26,
+    "humidifier": 25,
+    "buzzer":    23,
+    "light":      5,
 }
 
 # ─── Sensors ──────────────────────────────────────────────────────────
-CLIMATE_SENSORS       = ["temperature", "humidity"]
+CLIMATE_SENSORS        = ["temperature", "humidity"]
 SELECTABLE_GAS_SENSORS = ["mq2", "mq3", "mq4", "mq135", "mq136", "mq137", "co2"]
-ALL_SENSORS           = CLIMATE_SENSORS + SELECTABLE_GAS_SENSORS
+ALL_SENSORS            = CLIMATE_SENSORS + SELECTABLE_GAS_SENSORS
 
 SENSOR_METADATA = {
     "temperature": {"label": "Temperature",  "unit": "°C",  "category": "climate"},
@@ -132,17 +136,17 @@ GAS_THRESHOLDS = {
 }
 
 FRESHNESS_THRESHOLDS = {
-    "fresh":       70,
+    "fresh":        70,
     "half_spoiled": 40,
 }
 
 # ─── Buffers / files ──────────────────────────────────────────────────
-BUFFER_SIZE            = 1000
+BUFFER_SIZE             = 1000
 DASHBOARD_HISTORY_LIMIT = 50
-DATA_STALE_SECONDS     = 20
-SESSION_FILE           = DATA_DIR / "session_state.json"
-LAST_DATA_FILE         = DATA_DIR / "latest_data.json"
-LOG_DIR                = DATA_DIR / "logs"
+DATA_STALE_SECONDS      = 20
+SESSION_FILE            = DATA_DIR / "session_state.json"
+LAST_DATA_FILE          = DATA_DIR / "latest_data.json"
+LOG_DIR                 = DATA_DIR / "logs"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
