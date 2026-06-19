@@ -15,6 +15,7 @@ from flask_socketio import SocketIO, emit
 import config
 from actuator_control import ActuatorController
 from cloud_client import CloudClient
+from firestore_logger import init_firestore, log_training_reading
 from ml_engine import MLEngine
 from mqtt_handler import MQTTHandler
 from session_manager import SessionManager
@@ -136,6 +137,15 @@ def extract_flat_sensor_values() -> Dict[str, float]:
     return flat
 
 
+def extract_full_sensor_snapshot() -> Dict[str, float]:
+    """Like extract_flat_sensor_values but also includes sensor chamber climate
+    (DHT22 temperature/humidity), for Firestore ML training logs."""
+    flat = extract_flat_sensor_values()
+    flat["sensor_chamber_temperature"] = float(sensor_data["sensor_chamber_temperature"] or 0.0)
+    flat["sensor_chamber_humidity"] = float(sensor_data["sensor_chamber_humidity"] or 0.0)
+    return flat
+
+
 def append_cloud_reading() -> None:
     session = session_manager.get()
     if not session.get("session_id"):
@@ -198,6 +208,16 @@ def run_ml_and_control() -> None:
     })
 
 
+def log_training_data_if_enabled(session: Dict[str, Any]) -> None:
+    """Log a labeled sensor snapshot to Firestore for ML training,
+    only when a freshness_label is set on the current session."""
+    label = session.get("freshness_label")
+    if not label:
+        return
+    snapshot = extract_full_sensor_snapshot()
+    log_training_reading(session.get("food_name"), label, snapshot)
+
+
 # ─────────────────────────────────────────────────────────────────────
 #  MQTT SENSOR CALLBACK
 # ─────────────────────────────────────────────────────────────────────
@@ -250,10 +270,19 @@ def sensor_callback(topic: str, data: Dict[str, Any]) -> None:
                 # reboots and reconnects stay consistent.
                 actuator_status["light"] = _light_on
 
+
             session = session_manager.get()
             if session.get("status") == "running":
-                append_cloud_reading()
-                run_ml_and_control()
+                if session.get("freshness_label"):
+                    # Training/data-collection session — log only, no actuator control
+                    log_training_data_if_enabled(session)
+                else:
+                    append_cloud_reading()
+                    run_ml_and_control()
+
+
+
+
 
             emit_full_state()
             save_latest_data()
@@ -306,6 +335,14 @@ def start_session():
     data = request.json or {}
     food_name = str(data.get("food_name", "")).lower().strip()
     selected_sensors = data.get("selected_sensors", [])
+    freshness_label = str(data.get("freshness_label", "fresh")).lower().strip()
+
+    valid_labels = {"fresh", "half_spoiled", "spoiled"}
+    if freshness_label not in valid_labels:
+        return jsonify({
+            "success": False,
+            "message": f"freshness_label must be one of {sorted(valid_labels)}",
+        }), 400
 
     if food_name not in config.SUPPORTED_FOODS:
         return jsonify({"success": False, "message": "Unsupported food"}), 400
@@ -315,7 +352,7 @@ def start_session():
         return jsonify({"success": False, "message": "Select at least one gas sensor"}), 400
 
     with state_lock:
-        session = session_manager.start(food_name, valid_sensors)
+        session = session_manager.start(food_name, valid_sensors, freshness_label)
         ml_results["history"] = []
 
         try:
@@ -574,6 +611,8 @@ def watchdog_loop() -> None:
 # ─────────────────────────────────────────────────────────────────────
 def init_system() -> None:
     global mqtt_handler, ml_engine, actuator_controller, _light_on
+
+    init_firestore(str(config.BASE_DIR / "foodmon-add60-firebase-adminsdk-fbsvc-37b5fc0160.json"))
 
     # Restore light state from last saved data so the button shows the
     # correct state after a Flask restart or Pi reboot
