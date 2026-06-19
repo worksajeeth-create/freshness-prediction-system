@@ -19,6 +19,7 @@ class SessionState:
     start_time: Optional[int] = None
     end_time: Optional[int] = None
     device_id: str = config.DEVICE_ID
+    freshness_label: Optional[str] = None  # "fresh" | "half_spoiled" | "spoiled"
 
 
 class SessionManager:
@@ -39,7 +40,7 @@ class SessionManager:
     def save_state(self) -> None:
         self.state_file.write_text(json.dumps(asdict(self.state), indent=2))
 
-    def start(self, food_name: str, selected_sensors: List[str]) -> Dict[str, Any]:
+    def start(self, food_name: str, selected_sensors: List[str], freshness_label: str = "fresh") -> Dict[str, Any]:
         session_id = str(int(time.time()))
         ordered_sensors = [s for s in config.SELECTABLE_GAS_SENSORS if s in selected_sensors]
         self.state = SessionState(
@@ -49,6 +50,7 @@ class SessionManager:
             status="running",
             start_time=int(time.time()),
             end_time=None,
+            freshness_label=freshness_label,
         )
         self.save_state()
         return asdict(self.state)
