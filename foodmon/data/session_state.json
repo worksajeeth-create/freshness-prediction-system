@@ -1,0 +1,18 @@
+{
+  "session_id": "1781273411",
+  "food_name": "apple",
+  "selected_sensors": [
+    "mq2",
+    "mq3",
+    "mq4",
+    "mq135",
+    "mq136",
+    "mq137",
+    "co2"
+  ],
+  "status": "running",
+  "start_time": 1781273411,
+  "end_time": null,
+  "device_id": "foodmon_01",
+  "freshness_label": "fresh"
+}

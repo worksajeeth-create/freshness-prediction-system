@@ -1,0 +1,44 @@
+{
+  "sensor_data": {
+    "temperature": 27.4,
+    "humidity": 95.2,
+    "sensor_chamber_temperature": 32.2,
+    "sensor_chamber_humidity": 72.8,
+    "gases": {},
+    "timestamp": 4495,
+    "device_status": "offline"
+  },
+  "ml_results": {
+    "freshness_index": null,
+    "status": null,
+    "remaining_days": null,
+    "history": []
+  },
+  "actuator_status": {
+    "cooler": false,
+    "ventilation": "OFF",
+    "humidifier": false,
+    "light": false,
+    "buzzer": false,
+    "actuator_timer_on": false,
+    "actuator_remaining_s": 0
+  },
+  "session": {
+    "session_id": "1781273411",
+    "food_name": "apple",
+    "selected_sensors": [
+      "mq2",
+      "mq3",
+      "mq4",
+      "mq135",
+      "mq136",
+      "mq137",
+      "co2"
+    ],
+    "status": "running",
+    "start_time": 1781273411,
+    "end_time": null,
+    "device_id": "foodmon_01",
+    "freshness_label": "fresh"
+  }
+}
