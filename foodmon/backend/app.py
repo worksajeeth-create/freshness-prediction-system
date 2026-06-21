@@ -57,12 +57,15 @@ ml_results: Dict[str, Any] = {
     "history": [],
 }
 
+# Note: "buzzer" intentionally excluded — the buzzer is no longer a
+# persisted/timed actuator. It only ever fires fire-and-forget pulses
+# on ESP_BUZZER_COMMAND_TOPIC (see buzzer_beep() and the spoilage
+# check in run_ml_and_control()).
 actuator_status: Dict[str, Any] = {
     "cooler": False,
     "ventilation": "OFF",
     "humidifier": False,
     "light": False,
-    "buzzer": False,
     "actuator_timer_on": False,
     "actuator_remaining_s": 0,
 }
@@ -75,6 +78,12 @@ state_lock = threading.Lock()
 # foodmon/control/light topic so the ESP never routes it through any
 # other actuator logic at all.
 _light_on: bool = False
+
+# ─── Spoilage-alert edge detection ────────────────────────────────────
+# Tracks the previous ML status so the long beep fires exactly once on
+# the transition INTO "Spoiled", rather than on every ML tick while the
+# food remains spoiled (which would buzz continuously).
+_last_freshness_status: str | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -152,15 +161,36 @@ def append_cloud_reading() -> None:
         print(f"[Cloud] append_reading failed: {exc}")
 
 
+def trigger_buzzer(beep_type: str) -> None:
+    """Publish a fire-and-forget buzzer pulse to the ESP.
+
+    beep_type: "short" (UI press, ~100ms) or "long" (spoilage alert, ~800ms).
+    Safe to call even if MQTT isn't connected — it just logs and skips.
+    """
+    if not mqtt_handler or not mqtt_handler.connected:
+        print(f"[buzzer] Skipped ({beep_type}) — MQTT not connected")
+        return
+    mqtt_handler.publish(config.ESP_BUZZER_COMMAND_TOPIC, {
+        "type": beep_type,
+        "device_id": config.DEVICE_ID,
+        "timestamp": int(time.time()),
+    })
+
+
 def run_ml_and_control() -> None:
-    """ML inference + automatic actuator control.
+    """ML inference + automatic actuator control + spoilage alert.
 
     Manual actuator toggles on the System Control page are locked out
     entirely while a session is running (see updateActuatorLock in
     system_control.js), so there is no need for any manual-override
     window here — whenever this runs, ML/rules are the sole source of
     actuator commands.
+
+    Also fires the long buzzer alert exactly once whenever the
+    predicted status transitions into "Spoiled".
     """
+    global _last_freshness_status
+
     session = session_manager.get()
     if session.get("status") != "running" or not session.get("food_name"):
         return
@@ -184,6 +214,12 @@ def run_ml_and_control() -> None:
         {"timestamp": sensor_data["timestamp"], "freshness": prediction["freshness_index"]}
     )
     ml_results["history"] = ml_results["history"][-config.DASHBOARD_HISTORY_LIMIT:]
+
+    # Long beep — fires once on the transition into "Spoiled".
+    if prediction["status"] == "Spoiled" and _last_freshness_status != "Spoiled":
+        trigger_buzzer("long")
+        print("[buzzer] Long beep — spoiled food detected")
+    _last_freshness_status = prediction["status"]
 
     new_status = actuator_controller.update(
         session["food_name"],
@@ -248,10 +284,12 @@ def sensor_callback(topic: str, data: Dict[str, Any]) -> None:
 
             elif topic == "foodmon/actuators/status":
                 # Update actuator fields from ESP report.
+                # "buzzer" is intentionally not read here — it is no
+                # longer a persisted/reported actuator state, only
+                # instantaneous pulses (see trigger_buzzer()).
                 actuator_status["cooler"]      = data.get("cooler", False)
                 actuator_status["ventilation"] = data.get("ventilation", "OFF")
                 actuator_status["humidifier"]  = data.get("humidifier", False)
-                actuator_status["buzzer"]      = data.get("buzzer", False)
                 # No timer system anymore — actuators stay as commanded.
                 actuator_status["actuator_timer_on"]    = False
                 actuator_status["actuator_remaining_s"] = 0
@@ -323,6 +361,8 @@ def get_sensors():
 
 @app.route("/api/start_session", methods=["POST"])
 def start_session():
+    global _last_freshness_status
+
     data = request.json or {}
     food_name = str(data.get("food_name", "")).lower().strip()
     selected_sensors = data.get("selected_sensors", [])
@@ -345,6 +385,9 @@ def start_session():
     with state_lock:
         session = session_manager.start(food_name, valid_sensors, freshness_label)
         ml_results["history"] = []
+        # Reset spoilage edge-detection so a new session always starts
+        # from a clean "not yet spoiled" state.
+        _last_freshness_status = None
 
         try:
             cloud_client.upsert_session(session)
@@ -473,6 +516,28 @@ def toggle_light():
 
 
 # ─────────────────────────────────────────────────────────────────────
+#  ROUTES — Buzzer
+# ─────────────────────────────────────────────────────────────────────
+@app.route("/api/buzzer_beep", methods=["POST"])
+def buzzer_beep():
+    """
+    Fire a single short beep (~100ms) for touchscreen UI feedback.
+
+    Called whenever the user presses any button, tab, or toggle switch
+    on the frontend (see the global click listener in app.js /
+    system_control.js). Stateless — no session lock, no actuator
+    interaction, fires immediately on the dedicated buzzer topic.
+    """
+    if not mqtt_handler:
+        return jsonify({"success": False, "message": "MQTT handler not initialised"}), 503
+    if not mqtt_handler.connected:
+        return jsonify({"success": False, "message": "MQTT broker not connected"}), 503
+
+    trigger_buzzer("short")
+    return jsonify({"success": True})
+
+
+# ─────────────────────────────────────────────────────────────────────
 #  ROUTES — System power
 # ─────────────────────────────────────────────────────────────────────
 @app.route("/api/system/poweroff", methods=["POST"])
@@ -494,7 +559,7 @@ def system_poweroff():
 def manual_actuator():
     """
     Directly set the state of one or more TIMED-formerly actuators:
-    cooler, ventilation, humidifier, buzzer.
+    cooler, ventilation, humidifier.
 
     There is no timer and no separate "send" step. Whatever state is
     posted here is applied immediately and stays in effect until the
@@ -503,7 +568,11 @@ def manual_actuator():
     monitoring session is running (manual controls are locked out
     during a session).
 
-    The light is intentionally excluded — use /api/toggle_light instead.
+    The light and buzzer are intentionally excluded — use
+    /api/toggle_light and /api/buzzer_beep instead. The buzzer in
+    particular is no longer a settable actuator state at all; the
+    long alert beep is fired automatically and only by
+    run_ml_and_control() on a spoilage detection.
     """
     data = request.json or {}
 
@@ -514,8 +583,9 @@ def manual_actuator():
             "message": f"ventilation must be one of {sorted(valid_vent_levels)}",
         }), 400
 
-    # Light is excluded from this endpoint — it has its own route
-    allowed_keys = {"cooler", "ventilation", "humidifier", "buzzer"}
+    # Light and buzzer are excluded from this endpoint — they have
+    # their own dedicated routes/topics.
+    allowed_keys = {"cooler", "ventilation", "humidifier"}
     command = {k: v for k, v in data.items() if k in allowed_keys}
 
     if not command:
@@ -534,7 +604,7 @@ def manual_actuator():
 
         mqtt_handler.publish(config.ESP_ACTUATOR_COMMAND_TOPIC, command)
 
-        for key in ("cooler", "ventilation", "humidifier", "buzzer"):
+        for key in ("cooler", "ventilation", "humidifier"):
             if key in data:
                 actuator_status[key] = data[key]
 
