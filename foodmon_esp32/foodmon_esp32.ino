@@ -1,22 +1,24 @@
 /*
  * =====================================================================
- * FoodMon ESP32 Firmware  v6  — direct actuator control, no auto-off timer
+ * FoodMon ESP32 Firmware  v7  — dedicated short/long buzzer topic
  * Intelligent Food Freshness Monitoring & Control System
  * =====================================================================
  *
- * KEY CHANGE vs v5:
- *   The 60-second auto-off timer for cooler / ventilation / humidifier /
- *   buzzer has been REMOVED. Each actuator now stays exactly in the
- *   state it was last commanded to (on/off, or fan level) until a new
- *   command changes it — matching the dashboard's toggle switches,
- *   which directly control hardware with no "send" step and no
- *   expiry. This mirrors how the light relay has always worked.
+ * KEY CHANGE vs v6:
+ *   The buzzer is no longer part of the timed cooler/ventilation/
+ *   humidifier actuator group. It has its own dedicated MQTT topic,
+ *   foodmon/control/buzzer, carrying fire-and-forget pulses:
  *
- *   foodmon/control/actuators still handles cooler / ventilation /
- *   humidifier / buzzer, but every command (manual or ML-driven) is
- *   now applied immediately and unconditionally — there is no longer
- *   a "manual timer active, ignore ML" guard, because the dashboard
- *   already locks manual controls out while a session is running.
+ *     {"type": "short"}  -> ~100ms beep  (any touchscreen button,
+ *                                          tab, or toggle press)
+ *     {"type": "long"}   -> ~800ms beep  (ML detects spoiled food,
+ *                                          fired once per spoilage
+ *                                          event by the Pi)
+ *
+ *   Both pulses are blocking but brief, fire-and-forget, and have no
+ *   persisted state — unlike cooler/ventilation/humidifier, the
+ *   buzzer is never reported back in foodmon/actuators/status and is
+ *   never part of foodmon/control/actuators payloads anymore.
  *
  *   foodmon/control/light is unchanged: dedicated topic, plain on/off,
  *   zero timer logic, completely independent of the other actuators.
@@ -70,6 +72,10 @@
 #define LEDC_FREQ_HZ   1000
 #define LEDC_BITS      8
 
+// ─── Buzzer pulse durations ─────────────────────────────────────────
+#define BUZZER_SHORT_MS   100UL   // UI press feedback
+#define BUZZER_LONG_MS    800UL   // spoiled food alert
+
 // ─────────────────────────────────────────────────────────────────────
 //  OBJECTS
 // ─────────────────────────────────────────────────────────────────────
@@ -85,13 +91,13 @@ PubSubClient mqtt(wifiClient);
 //  STATE
 // ─────────────────────────────────────────────────────────────────────
 
-// Cooler / ventilation / humidifier / buzzer.
+// Cooler / ventilation / humidifier.
 // No timer — whatever is set here persists until the next command.
+// (Buzzer removed from this struct — see dedicated buzzer functions.)
 struct ActuatorState {
   bool   cooler      = false;
   String ventilation = "OFF";
   bool   humidifier  = false;
-  bool   buzzer      = false;
 };
 ActuatorState currentAct;
 
@@ -123,7 +129,8 @@ void hardwareSetCooler(bool on);
 void hardwareSetVentilation(const String& level);
 void hardwareSetHumidifier(bool on);
 void hardwareSetLight(bool on);
-void hardwareSetBuzzer(bool on);
+void buzzerShortBeep();
+void buzzerLongBeep();
 float readMQVoltage(int pin);
 float mq2_to_ppm(float v);   float mq3_to_ppm(float v);
 float mq4_to_ppm(float v);   float mq135_to_ppm(float v);
@@ -135,7 +142,7 @@ int   readCO2();
 // ─────────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
-  Serial.println(F("\n[FoodMon] Booting v6..."));
+  Serial.println(F("\n[FoodMon] Booting v7..."));
 
   // Actuator pins
   const int actPins[] = {PIN_MIST, PIN_BUZZER, PIN_PELTIER, PIN_COOL_FAN};
@@ -194,10 +201,14 @@ void loop() {
     publishDeviceStatus("online");
   }
 
-  // No auto-off timer — cooler/ventilation/humidifier/buzzer stay exactly
+  // No auto-off timer — cooler/ventilation/humidifier stay exactly
   // as last commanded. They are only changed by an explicit MQTT command
   // (manual toggle or ML/rules control) or by the stale-connection
   // safety shutdown on session stop, below.
+  //
+  // The buzzer has no persisted state at all — it only ever fires a
+  // brief blocking pulse in response to foodmon/control/buzzer, then
+  // returns to idle. There is nothing to maintain for it in loop().
 
   // Peltier delayed-start
   if (peltierWanted) {
@@ -238,9 +249,10 @@ void connectMqtt() {
     mqtt.subscribe("foodmon/control/start");
     mqtt.subscribe("foodmon/control/stop");
     mqtt.subscribe("foodmon/control/ping");
-    mqtt.subscribe("foodmon/control/actuators");  // cooler/vent/humidifier/buzzer
+    mqtt.subscribe("foodmon/control/actuators");  // cooler/vent/humidifier
     mqtt.subscribe("foodmon/control/light");      // light — no timer
-    Serial.println(F("[MQTT] Subscribed to all topics incl. foodmon/control/light"));
+    mqtt.subscribe("foodmon/control/buzzer");     // short/long beep pulses
+    Serial.println(F("[MQTT] Subscribed to all topics incl. foodmon/control/buzzer"));
   } else {
     Serial.printf(" FAILED rc=%d\n", mqtt.state());
   }
@@ -269,7 +281,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
     return;
   }
 
-  // ── Session stop — actuators off, light unchanged ──────────────────
+  // ── Session stop — actuators off, light/buzzer unaffected ──────────
   if (strcmp(topic, "foodmon/control/stop") == 0) {
     sessionRunning = false;
     safeOffActuators();
@@ -298,12 +310,32 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  ACTUATORS — cooler / ventilation / humidifier / buzzer
+  //  BUZZER — dedicated topic, fire-and-forget pulses, zero persisted
+  //  state. "short" = UI press feedback (~100ms). "long" = spoiled
+  //  food alert (~800ms), sent once per spoilage event by the Pi.
+  // ─────────────────────────────────────────────────────────────────
+  if (strcmp(topic, "foodmon/control/buzzer") == 0) {
+    StaticJsonDocument<128> doc;
+    if (deserializeJson(doc, buf)) {
+      Serial.println(F("[BUZZER] Bad JSON — ignored."));
+      return;
+    }
+    const char* beepType = doc["type"] | "short";
+    if (strcmp(beepType, "long") == 0) {
+      buzzerLongBeep();
+    } else {
+      buzzerShortBeep();
+    }
+    return;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  ACTUATORS — cooler / ventilation / humidifier
   //  Applied immediately and unconditionally; no timer, no
   //  manual-vs-ML arbitration (the dashboard already prevents manual
   //  commands from being sent while a session/ML is controlling
-  //  these). Light keys in this payload are ignored — use
-  //  foodmon/control/light instead.
+  //  these). Light and buzzer keys in this payload are ignored — use
+  //  foodmon/control/light and foodmon/control/buzzer instead.
   // ─────────────────────────────────────────────────────────────────
   if (strcmp(topic, "foodmon/control/actuators") == 0) {
     StaticJsonDocument<512> doc;
@@ -315,9 +347,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
     ActuatorState desired = currentAct;
     if (doc.containsKey("cooler"))      desired.cooler      = doc["cooler"].as<bool>();
     if (doc.containsKey("humidifier"))  desired.humidifier  = doc["humidifier"].as<bool>();
-    if (doc.containsKey("buzzer"))      desired.buzzer      = doc["buzzer"].as<bool>();
     if (doc.containsKey("ventilation")) desired.ventilation = doc["ventilation"].as<String>();
-    // "light" key intentionally not read here — use foodmon/control/light instead
+    // "light" and "buzzer" keys intentionally not read here —
+    // use foodmon/control/light and foodmon/control/buzzer instead
 
     applyActuatorState(desired);
     publishActuatorStatus();
@@ -332,18 +364,16 @@ void applyActuatorState(const ActuatorState& desired) {
   if (desired.cooler      != currentAct.cooler)      hardwareSetCooler(desired.cooler);
   if (desired.ventilation != currentAct.ventilation) hardwareSetVentilation(desired.ventilation);
   if (desired.humidifier  != currentAct.humidifier)  hardwareSetHumidifier(desired.humidifier);
-  if (desired.buzzer      != currentAct.buzzer)      hardwareSetBuzzer(desired.buzzer);
 }
 
-// Shuts down cooler/ventilation/humidifier/buzzer (e.g. on session stop).
-// PIN_RELAY (light) is never touched here.
+// Shuts down cooler/ventilation/humidifier (e.g. on session stop).
+// PIN_RELAY (light) and the buzzer are never touched here.
 void safeOffActuators() {
   peltierWanted = false;
   digitalWrite(PIN_PELTIER,  LOW);
   digitalWrite(PIN_COOL_FAN, LOW);
   ledcWrite(PIN_BLOWER, 0);
   digitalWrite(PIN_MIST,   LOW);
-  digitalWrite(PIN_BUZZER, LOW);
   currentAct = ActuatorState();
 }
 
@@ -385,17 +415,27 @@ void hardwareSetLight(bool on) {
   Serial.printf("[LIGHT] %s\n", on ? "ON" : "OFF");
 }
 
-void hardwareSetBuzzer(bool on) {
-  if (on) {
-    for (int i = 0; i < 3; i++) {
-      digitalWrite(PIN_BUZZER, HIGH); delay(200);
-      digitalWrite(PIN_BUZZER, LOW);
-      if (i < 2) delay(150);
-    }
-  } else {
-    digitalWrite(PIN_BUZZER, LOW);
-  }
-  currentAct.buzzer = on;
+// ─────────────────────────────────────────────────────────────────────
+//  BUZZER HELPERS
+//  Both are short blocking pulses — fire-and-forget, no state kept.
+//  Requirement 1 (short beep on any touchscreen button/tab/toggle
+//  press) uses buzzerShortBeep(). Requirement 2 (long beep on spoiled
+//  food detection) uses buzzerLongBeep(), triggered once per spoilage
+//  event by the Pi's ML engine — see foodmon/control/buzzer handling
+//  above.
+// ─────────────────────────────────────────────────────────────────────
+void buzzerShortBeep() {
+  digitalWrite(PIN_BUZZER, HIGH);
+  delay(BUZZER_SHORT_MS);
+  digitalWrite(PIN_BUZZER, LOW);
+  Serial.println(F("[BUZZER] Short beep (UI press)"));
+}
+
+void buzzerLongBeep() {
+  digitalWrite(PIN_BUZZER, HIGH);
+  delay(BUZZER_LONG_MS);
+  digitalWrite(PIN_BUZZER, LOW);
+  Serial.println(F("[BUZZER] Long beep (spoiled food alert)"));
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -479,8 +519,9 @@ void publishActuatorStatus() {
   d["cooler"]      = currentAct.cooler;
   d["ventilation"] = currentAct.ventilation;
   d["humidifier"]  = currentAct.humidifier;
-  d["buzzer"]      = currentAct.buzzer;
   d["light"]       = lightState;   // always the true relay state
+  // "buzzer" intentionally omitted — it has no persisted state to
+  // report; it only ever fires instantaneous pulses.
   d["timestamp"]   = millis() / 1000;
   publishJson("foodmon/actuators/status", d);
 }
