@@ -50,7 +50,7 @@ ENABLE_CLOUD_SYNC    = os.getenv("FOODMON_ENABLE_CLOUD_SYNC",  "true").lower() =
 # ─── Actuators ────────────────────────────────────────────────────────
 ACTUATOR_CONTROL_MODE      = os.getenv("FOODMON_ACTUATOR_CONTROL_MODE", "esp").lower()
 
-# Topic for cooler / ventilation / humidifier / buzzer (60-second timer)
+# Topic for cooler / ventilation / humidifier (60-second timer)
 ESP_ACTUATOR_COMMAND_TOPIC = os.getenv(
     "FOODMON_ESP_ACTUATOR_COMMAND_TOPIC", "foodmon/control/actuators"
 )
@@ -58,6 +58,16 @@ ESP_ACTUATOR_COMMAND_TOPIC = os.getenv(
 # Dedicated topic for the light relay — no timer, plain ON/OFF
 ESP_LIGHT_COMMAND_TOPIC    = os.getenv(
     "FOODMON_ESP_LIGHT_COMMAND_TOPIC", "foodmon/control/light"
+)
+
+# Dedicated topic for the buzzer — fire-and-forget pulses, no timer,
+# no persisted state. Two pulse types are sent on this topic:
+#   {"type": "short"} -> single ~100ms beep, fired on any touchscreen
+#                        button / tab / toggle press
+#   {"type": "long"}  -> single ~800ms beep, fired once when the ML
+#                        engine detects spoiled food
+ESP_BUZZER_COMMAND_TOPIC = os.getenv(
+    "FOODMON_ESP_BUZZER_COMMAND_TOPIC", "foodmon/control/buzzer"
 )
 
 # How long (seconds) timed actuators run after each command.
