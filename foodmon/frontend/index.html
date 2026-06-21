@@ -56,6 +56,21 @@
     </div>
 
     <script>
+        /* ── Global UI beep ─────────────────────────────────────────── */
+        /* Requirement: "The system shall generate a short beep whenever
+           the user presses a touchscreen button, tab, or toggle switch."
+           One delegated, capturing click listener covers every button
+           on this page (Live Monitoring, light, System Control, power,
+           and the power confirm/cancel buttons) without wiring a beep
+           call into each handler individually. */
+        function fireUiBeep() {
+            fetch('/api/buzzer_beep', { method: 'POST' }).catch(() => {});
+        }
+        document.addEventListener('click', function (evt) {
+            const target = evt.target.closest('button, .home-icon-btn, .icon-button');
+            if (target) fireUiBeep();
+        }, true);
+
         /* ── Date / time ────────────────────────────────────────────── */
         function updateDateTime() {
             const now = new Date();
