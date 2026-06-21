@@ -10,6 +10,31 @@ const GAS_SENSORS = [
 
 function capitalize(text) { return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; }
 
+// ── Global UI beep ──────────────────────────────────────────────────
+// Requirement: "The system shall generate a short beep whenever the
+// user presses a touchscreen button, tab, or toggle switch."
+//
+// One delegated, capturing click listener on document covers every
+// interactive control on this page — tabs, the Start/Stop buttons,
+// dynamically-built food buttons, dynamically-built sensor checkbox
+// pills, and the actuator ON/OFF toggle switches — without needing a
+// beep call wired into each handler individually. Capturing phase
+// ensures this fires before any handler that might call
+// stopPropagation(), and works for elements created after page load
+// (food grid, sensor grid) since the listener lives on document.
+function fireUiBeep() {
+    fetch('/api/buzzer_beep', { method: 'POST' }).catch(() => {
+        // Silent fail — never block or alarm the user over a missed beep.
+    });
+}
+
+document.addEventListener('click', function (evt) {
+    const target = evt.target.closest(
+        'button, .tab-btn, .food-btn, .sensor-pill, .act-onoff, .icon-button, .climate-mode-btn'
+    );
+    if (target) fireUiBeep();
+}, true);
+
 // ── Header clock ───────────────────────────────────────────────────────────────
 function updateHeaderTime() {
     document.getElementById('header-time').textContent = new Date().toLocaleTimeString('en-US', {
