@@ -71,25 +71,10 @@ state_lock = threading.Lock()
 
 # ─── Light state ──────────────────────────────────────────────────────
 # Single source of truth for the relay/light. Completely independent of
-# the 60-second timed actuator system. Published to the dedicated
-# foodmon/control/light topic so the ESP never routes it through the
-# timer logic at all.
+# the timed-vs-manual actuator system. Published to the dedicated
+# foodmon/control/light topic so the ESP never routes it through any
+# other actuator logic at all.
 _light_on: bool = False
-
-# ─── Manual override tracking ─────────────────────────────────────────
-_manual_override_until: float = 0.0
-
-
-def _manual_override_active() -> bool:
-    if actuator_status.get("actuator_timer_on", False):
-        return True
-    return time.time() < _manual_override_until
-
-
-def _set_manual_override() -> None:
-    global _manual_override_until
-    _manual_override_until = time.time() + 10
-    print("[override] Manual command sent — ML dispatch suppressed until ESP confirms timer.")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -168,6 +153,14 @@ def append_cloud_reading() -> None:
 
 
 def run_ml_and_control() -> None:
+    """ML inference + automatic actuator control.
+
+    Manual actuator toggles on the System Control page are locked out
+    entirely while a session is running (see updateActuatorLock in
+    system_control.js), so there is no need for any manual-override
+    window here — whenever this runs, ML/rules are the sole source of
+    actuator commands.
+    """
     session = session_manager.get()
     if session.get("status") != "running" or not session.get("food_name"):
         return
@@ -191,9 +184,6 @@ def run_ml_and_control() -> None:
         {"timestamp": sensor_data["timestamp"], "freshness": prediction["freshness_index"]}
     )
     ml_results["history"] = ml_results["history"][-config.DASHBOARD_HISTORY_LIMIT:]
-
-    if _manual_override_active():
-        return
 
     new_status = actuator_controller.update(
         session["food_name"],
@@ -257,13 +247,14 @@ def sensor_callback(topic: str, data: Dict[str, Any]) -> None:
                     sensor_data["timestamp"] = ts
 
             elif topic == "foodmon/actuators/status":
-                # Update timed actuator fields from ESP report
-                actuator_status["cooler"]               = data.get("cooler", False)
-                actuator_status["ventilation"]          = data.get("ventilation", "OFF")
-                actuator_status["humidifier"]           = data.get("humidifier", False)
-                actuator_status["buzzer"]               = data.get("buzzer", False)
-                actuator_status["actuator_timer_on"]    = data.get("actuator_timer_on", False)
-                actuator_status["actuator_remaining_s"] = data.get("actuator_remaining_s", 0)
+                # Update actuator fields from ESP report.
+                actuator_status["cooler"]      = data.get("cooler", False)
+                actuator_status["ventilation"] = data.get("ventilation", "OFF")
+                actuator_status["humidifier"]  = data.get("humidifier", False)
+                actuator_status["buzzer"]      = data.get("buzzer", False)
+                # No timer system anymore — actuators stay as commanded.
+                actuator_status["actuator_timer_on"]    = False
+                actuator_status["actuator_remaining_s"] = 0
                 # Light: the ESP now reports lightState correctly via the
                 # dedicated topic path, so we can trust it directly.
                 # But we also keep _light_on as the Pi-side authority so
@@ -448,8 +439,8 @@ def toggle_light():
     If omitted, the current state is toggled.
 
     Publishes to the DEDICATED topic  foodmon/control/light
-    which the ESP handles with a plain relay flip — no 60-second
-    timer, no guards, no interaction with any other actuator.
+    which the ESP handles with a plain relay flip — no timer,
+    no guards, no interaction with any other actuator.
     """
     global _light_on
 
@@ -502,8 +493,15 @@ def system_poweroff():
 @app.route("/api/manual_actuator", methods=["POST"])
 def manual_actuator():
     """
-    Send a manual actuator command for the TIMED actuators only:
+    Directly set the state of one or more TIMED-formerly actuators:
     cooler, ventilation, humidifier, buzzer.
+
+    There is no timer and no separate "send" step. Whatever state is
+    posted here is applied immediately and stays in effect until the
+    next call changes it — i.e. the dashboard switch IS the actuator
+    state. This endpoint is only reachable from the UI while no
+    monitoring session is running (manual controls are locked out
+    during a session).
 
     The light is intentionally excluded — use /api/toggle_light instead.
     """
@@ -523,10 +521,10 @@ def manual_actuator():
     if not command:
         return jsonify({"success": False, "message": "No valid actuator keys provided"}), 400
 
-    command["manual"]     = True
-    command["command"]    = "set_actuators"
-    command["device_id"]  = config.DEVICE_ID
-    command["timestamp"]  = int(time.time())
+    command["manual"]    = True
+    command["command"]   = "set_actuators"
+    command["device_id"] = config.DEVICE_ID
+    command["timestamp"] = int(time.time())
 
     with state_lock:
         if not mqtt_handler:
@@ -535,14 +533,14 @@ def manual_actuator():
             return jsonify({"success": False, "message": "MQTT broker not connected"}), 503
 
         mqtt_handler.publish(config.ESP_ACTUATOR_COMMAND_TOPIC, command)
-        _set_manual_override()
 
         for key in ("cooler", "ventilation", "humidifier", "buzzer"):
             if key in data:
                 actuator_status[key] = data[key]
 
-        actuator_status["actuator_timer_on"]    = True
-        actuator_status["actuator_remaining_s"] = int(config.ACTUATOR_RUN_SECONDS)
+        # No timer: the actuator simply stays in whatever state was just sent.
+        actuator_status["actuator_timer_on"]    = False
+        actuator_status["actuator_remaining_s"] = 0
 
         emit_full_state()
         save_latest_data()
@@ -551,7 +549,6 @@ def manual_actuator():
     return jsonify({
         "success": True,
         "command_sent": command,
-        "actuator_timeout_s": config.ACTUATOR_RUN_SECONDS,
     })
 
 
@@ -599,10 +596,27 @@ def handle_request_update():
 #  BACKGROUND THREADS
 # ─────────────────────────────────────────────────────────────────────
 def watchdog_loop() -> None:
-    """Safe-off timed actuators if no sensor data has arrived for >60 s."""
+    """Safe-off actuators if no sensor data has arrived for >60 s WHILE a
+    monitoring session is running.
+
+    This guards the automatic ML/rules-driven actuators against getting
+    stuck on if the ESP stops reporting sensor data mid-session — that is
+    the only scenario in which `actuator_controller`'s internal state is
+    being actively driven, so it's the only scenario where "staleness" is
+    meaningful.
+
+    It must NOT run while no session is active: manual toggles on the
+    System Control page bypass `actuator_controller` entirely (they
+    publish straight to MQTT and update `actuator_status` directly), so
+    `actuator_controller.last_update_time` is never refreshed by manual
+    control. Without this guard, the watchdog would see manual mode as
+    permanently "stale" 60 s after Flask starts and would force every
+    manually-toggled actuator off every 5 s thereafter — exactly the bug
+    where the ON duration kept shrinking on each attempt.
+    """
     while True:
         time.sleep(5)
-        if actuator_controller:
+        if actuator_controller and session_manager.is_running():
             actuator_controller.safe_shutdown_if_stale()
 
 
