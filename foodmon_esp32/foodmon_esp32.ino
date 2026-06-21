@@ -1,21 +1,25 @@
 /*
  * =====================================================================
- * FoodMon ESP32 Firmware  v5  — light on dedicated topic, no timer
+ * FoodMon ESP32 Firmware  v6  — direct actuator control, no auto-off timer
  * Intelligent Food Freshness Monitoring & Control System
  * =====================================================================
  *
- * KEY CHANGE vs v4:
- *   Light is controlled via a DEDICATED MQTT topic:
- *       foodmon/control/light
- *   Payload: {"light": true}  or  {"light": false}
- *
- *   This topic handler does ONE thing only:
- *       drive PIN_RELAY and update lightState.
- *   No timer. No guards. No interaction with other actuators.
+ * KEY CHANGE vs v5:
+ *   The 60-second auto-off timer for cooler / ventilation / humidifier /
+ *   buzzer has been REMOVED. Each actuator now stays exactly in the
+ *   state it was last commanded to (on/off, or fan level) until a new
+ *   command changes it — matching the dashboard's toggle switches,
+ *   which directly control hardware with no "send" step and no
+ *   expiry. This mirrors how the light relay has always worked.
  *
  *   foodmon/control/actuators still handles cooler / ventilation /
- *   humidifier / buzzer with the 60-second timer as before.
- *   Light keys in that topic are IGNORED so there is zero interference.
+ *   humidifier / buzzer, but every command (manual or ML-driven) is
+ *   now applied immediately and unconditionally — there is no longer
+ *   a "manual timer active, ignore ML" guard, because the dashboard
+ *   already locks manual controls out while a session is running.
+ *
+ *   foodmon/control/light is unchanged: dedicated topic, plain on/off,
+ *   zero timer logic, completely independent of the other actuators.
  *
  * =====================================================================
  */
@@ -42,7 +46,6 @@
 #define SENSOR_PUBLISH_MS     2000UL
 #define STATUS_PUBLISH_MS    10000UL
 #define MQTT_RETRY_MS         5000UL
-#define ACTUATOR_TIMEOUT_MS  60000UL
 #define PELTIER_FAN_PRE_MS    1500UL
 #define ADC_SAMPLES              10
 
@@ -82,7 +85,8 @@ PubSubClient mqtt(wifiClient);
 //  STATE
 // ─────────────────────────────────────────────────────────────────────
 
-// Timed actuators (cooler / ventilation / humidifier / buzzer)
+// Cooler / ventilation / humidifier / buzzer.
+// No timer — whatever is set here persists until the next command.
 struct ActuatorState {
   bool   cooler      = false;
   String ventilation = "OFF";
@@ -91,14 +95,10 @@ struct ActuatorState {
 };
 ActuatorState currentAct;
 
-// Light — completely independent, no timer
+// Light — completely independent, no timer (unchanged from v5)
 bool lightState = false;
 
-// 60-second timer (timed actuators only)
-unsigned long actuatorStartedAt   = 0;
-bool          actuatorTimerActive = false;
-
-// Peltier sequencer
+// Peltier sequencer (fan spins up briefly before the Peltier itself energises)
 bool          peltierWanted   = false;
 unsigned long fanPreStartedAt = 0;
 
@@ -118,7 +118,7 @@ void publishDeviceStatus(const char* status);
 void publishActuatorStatus();
 void publishJson(const char* topic, JsonDocument& doc);
 void applyActuatorState(const ActuatorState& desired);
-void safeOffTimedActuators();
+void safeOffActuators();
 void hardwareSetCooler(bool on);
 void hardwareSetVentilation(const String& level);
 void hardwareSetHumidifier(bool on);
@@ -135,11 +135,11 @@ int   readCO2();
 // ─────────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
-  Serial.println(F("\n[FoodMon] Booting v5..."));
+  Serial.println(F("\n[FoodMon] Booting v6..."));
 
-  // Timed actuator pins
-  const int timedPins[] = {PIN_MIST, PIN_BUZZER, PIN_PELTIER, PIN_COOL_FAN};
-  for (int p : timedPins) { pinMode(p, OUTPUT); digitalWrite(p, LOW); }
+  // Actuator pins
+  const int actPins[] = {PIN_MIST, PIN_BUZZER, PIN_PELTIER, PIN_COOL_FAN};
+  for (int p : actPins) { pinMode(p, OUTPUT); digitalWrite(p, LOW); }
 
   // Relay — HIGH on boot = light OFF
   pinMode(PIN_RELAY, OUTPUT);
@@ -194,16 +194,10 @@ void loop() {
     publishDeviceStatus("online");
   }
 
-  // 60-second auto-off for timed actuators only — light not affected
-  if (actuatorTimerActive) {
-    unsigned long fresh   = millis();
-    unsigned long elapsed = fresh - actuatorStartedAt;
-    if (elapsed >= ACTUATOR_TIMEOUT_MS && elapsed >= 5000UL) {
-      Serial.println(F("[ACT] 60s elapsed — timed actuators OFF. Light unchanged."));
-      safeOffTimedActuators();
-      publishActuatorStatus();
-    }
-  }
+  // No auto-off timer — cooler/ventilation/humidifier/buzzer stay exactly
+  // as last commanded. They are only changed by an explicit MQTT command
+  // (manual toggle or ML/rules control) or by the stale-connection
+  // safety shutdown on session stop, below.
 
   // Peltier delayed-start
   if (peltierWanted) {
@@ -244,7 +238,7 @@ void connectMqtt() {
     mqtt.subscribe("foodmon/control/start");
     mqtt.subscribe("foodmon/control/stop");
     mqtt.subscribe("foodmon/control/ping");
-    mqtt.subscribe("foodmon/control/actuators");  // timed actuators
+    mqtt.subscribe("foodmon/control/actuators");  // cooler/vent/humidifier/buzzer
     mqtt.subscribe("foodmon/control/light");      // light — no timer
     Serial.println(F("[MQTT] Subscribed to all topics incl. foodmon/control/light"));
   } else {
@@ -275,11 +269,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
     return;
   }
 
-  // ── Session stop — timed actuators off, light unchanged ───────────
+  // ── Session stop — actuators off, light unchanged ──────────────────
   if (strcmp(topic, "foodmon/control/stop") == 0) {
     sessionRunning = false;
-    safeOffTimedActuators();
-    actuatorTimerActive = false;
+    safeOffActuators();
     publishActuatorStatus();
     publishDeviceStatus("online");
     return;
@@ -305,21 +298,17 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  TIMED ACTUATORS — cooler / ventilation / humidifier / buzzer
-  //  Light keys in this payload are silently ignored.
+  //  ACTUATORS — cooler / ventilation / humidifier / buzzer
+  //  Applied immediately and unconditionally; no timer, no
+  //  manual-vs-ML arbitration (the dashboard already prevents manual
+  //  commands from being sent while a session/ML is controlling
+  //  these). Light keys in this payload are ignored — use
+  //  foodmon/control/light instead.
   // ─────────────────────────────────────────────────────────────────
   if (strcmp(topic, "foodmon/control/actuators") == 0) {
     StaticJsonDocument<512> doc;
     if (deserializeJson(doc, buf)) {
       Serial.println(F("[ACT] Bad JSON — ignored."));
-      return;
-    }
-
-    bool isManual = doc.containsKey("manual") && doc["manual"].as<bool>();
-
-    if (actuatorTimerActive && !isManual) {
-      unsigned long remaining = (ACTUATOR_TIMEOUT_MS - (millis() - actuatorStartedAt)) / 1000UL;
-      Serial.printf("[ACT] ML command ignored — manual timer active (%lu s left)\n", remaining);
       return;
     }
 
@@ -330,22 +319,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
     if (doc.containsKey("ventilation")) desired.ventilation = doc["ventilation"].as<String>();
     // "light" key intentionally not read here — use foodmon/control/light instead
 
-    bool anyActive = desired.cooler
-                  || desired.humidifier
-                  || desired.buzzer
-                  || (desired.ventilation != "OFF");
-
     applyActuatorState(desired);
-
-    if (anyActive) {
-      actuatorStartedAt   = millis();
-      actuatorTimerActive = true;
-      Serial.printf("[ACT] Timer started — auto-off in %lu s\n", ACTUATOR_TIMEOUT_MS / 1000UL);
-    } else {
-      actuatorTimerActive = false;
-      Serial.println(F("[ACT] All timed actuators OFF — timer cancelled."));
-    }
-
     publishActuatorStatus();
     return;
   }
@@ -361,16 +335,16 @@ void applyActuatorState(const ActuatorState& desired) {
   if (desired.buzzer      != currentAct.buzzer)      hardwareSetBuzzer(desired.buzzer);
 }
 
-// Shuts down only the timed actuators. PIN_RELAY is never touched here.
-void safeOffTimedActuators() {
+// Shuts down cooler/ventilation/humidifier/buzzer (e.g. on session stop).
+// PIN_RELAY (light) is never touched here.
+void safeOffActuators() {
   peltierWanted = false;
   digitalWrite(PIN_PELTIER,  LOW);
   digitalWrite(PIN_COOL_FAN, LOW);
   ledcWrite(PIN_BLOWER, 0);
   digitalWrite(PIN_MIST,   LOW);
   digitalWrite(PIN_BUZZER, LOW);
-  currentAct          = ActuatorState();
-  actuatorTimerActive = false;
+  currentAct = ActuatorState();
 }
 
 void hardwareSetCooler(bool on) {
@@ -490,34 +464,24 @@ void publishSensors() {
 
 void publishDeviceStatus(const char* status) {
   if (!mqtt.connected()) return;
-  unsigned long elapsed   = millis() - actuatorStartedAt;
-  unsigned long remaining = (actuatorTimerActive && elapsed < ACTUATOR_TIMEOUT_MS)
-                            ? (ACTUATOR_TIMEOUT_MS - elapsed) / 1000UL : 0;
   StaticJsonDocument<256> d;
-  d["device_id"]            = DEVICE_ID;
-  d["status"]               = status;
-  d["session"]              = sessionRunning ? "running" : "idle";
-  d["ip"]                   = WiFi.localIP().toString();
-  d["actuator_timer_on"]    = actuatorTimerActive;
-  d["actuator_remaining_s"] = remaining;
-  d["timestamp"]            = millis() / 1000;
+  d["device_id"] = DEVICE_ID;
+  d["status"]    = status;
+  d["session"]   = sessionRunning ? "running" : "idle";
+  d["ip"]        = WiFi.localIP().toString();
+  d["timestamp"] = millis() / 1000;
   publishJson("foodmon/device/status", d);
 }
 
 void publishActuatorStatus() {
   if (!mqtt.connected()) return;
-  unsigned long elapsed   = millis() - actuatorStartedAt;
-  unsigned long remaining = (actuatorTimerActive && elapsed < ACTUATOR_TIMEOUT_MS)
-                            ? (ACTUATOR_TIMEOUT_MS - elapsed) / 1000UL : 0;
   StaticJsonDocument<256> d;
-  d["cooler"]               = currentAct.cooler;
-  d["ventilation"]          = currentAct.ventilation;
-  d["humidifier"]           = currentAct.humidifier;
-  d["buzzer"]               = currentAct.buzzer;
-  d["light"]                = lightState;   // always the true relay state
-  d["actuator_timer_on"]    = actuatorTimerActive;
-  d["actuator_remaining_s"] = remaining;
-  d["timestamp"]            = millis() / 1000;
+  d["cooler"]      = currentAct.cooler;
+  d["ventilation"] = currentAct.ventilation;
+  d["humidifier"]  = currentAct.humidifier;
+  d["buzzer"]      = currentAct.buzzer;
+  d["light"]       = lightState;   // always the true relay state
+  d["timestamp"]   = millis() / 1000;
   publishJson("foodmon/actuators/status", d);
 }
 
