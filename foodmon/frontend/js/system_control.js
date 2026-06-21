@@ -120,71 +120,126 @@ function updateActuatorLock(session) {
     const isRunning = session.status === 'running';
     const banner    = document.getElementById('act-lock-banner');
     const controls  = document.getElementById('act-controls');
-    const sendBtn   = document.getElementById('act-send-btn');
 
     banner.classList.toggle('hidden', !isRunning);
     controls.classList.toggle('act-locked', isRunning);
-    if (sendBtn) sendBtn.disabled = isRunning;
 }
 
-// ── ON/OFF toggle widgets ──────────────────────────────────────────────────────
+// ── ON/OFF toggle widgets — directly control the actuator, no timer ────────────
+// Each switch is wired to its own MQTT-backed actuator. Flipping a switch sends
+// that single actuator's new state to the backend immediately. The actuator
+// then stays exactly as commanded (no auto-off) until the switch is flipped
+// again by the user.
+
+function actuatorPayloadFor(key, isOn) {
+    // Ventilation sends a level string; cooler and humidifier send booleans.
+    if (key === 'ventilation') {
+        return isOn ? 'LOW' : 'OFF';   // manual mode defaults to LOW when ON
+    }
+    return isOn;
+}
+
+function showActFeedback(text, kind) {
+    const feedback = document.getElementById('act-feedback');
+    if (!feedback) return;
+    feedback.textContent = text;
+    feedback.className   = 'act-feedback' + (kind ? ` act-feedback-${kind}` : '');
+    clearTimeout(showActFeedback._t);
+    showActFeedback._t = setTimeout(() => {
+        feedback.textContent = '';
+        feedback.className   = 'act-feedback';
+    }, 2000);
+}
+
+// Minimum time between accepted toggles on the *same* switch. Touchscreens
+// frequently emit a "ghost" duplicate click event for a single physical tap
+// (touch + emulated mouse click, or a stray second event from the panel
+// driver). Without a guard, that duplicate event immediately flips the
+// switch back, and any further duplicates compound — each extra click adds
+// another silent on/off flip, which is why the ON duration kept shrinking
+// on repeated presses. This cooldown collapses any duplicate events from one
+// physical tap into a single state change.
+const ACT_TOGGLE_COOLDOWN_MS = 400;
+
 function initActuatorToggles() {
     document.querySelectorAll('.act-onoff').forEach(widget => {
-        widget.addEventListener('click', () => {
-            // Ignore clicks when locked
+        // Guard against this function (or boot()) accidentally running more
+        // than once and stacking duplicate listeners on the same element —
+        // that alone would make every tap fire twice.
+        if (widget.dataset.toggleBound === 'true') return;
+        widget.dataset.toggleBound = 'true';
+        widget.style.touchAction = 'manipulation'; // suppress double-tap/zoom gesture handling
+
+        let busy = false;        // true while a request for this widget is in flight
+        let lastToggleAt = 0;    // timestamp of the last accepted toggle
+
+        widget.addEventListener('click', async (evt) => {
+            evt.preventDefault();
+
+            // Ignore clicks when locked (an active monitoring session is running)
             if (document.getElementById('act-controls').classList.contains('act-locked')) return;
+
+            // Ignore a request already in flight, and ignore anything that
+            // arrives within the cooldown window of the last accepted toggle
+            // (this is what absorbs duplicate/ghost click events).
+            const now = Date.now();
+            if (busy || (now - lastToggleAt) < ACT_TOGGLE_COOLDOWN_MS) return;
+
+            busy = true;
+            lastToggleAt = now;
+
+            const key     = widget.dataset.actuator;
             const current = widget.dataset.state;
             const next    = current === 'off' ? 'on' : 'off';
+
+            // Update the switch immediately for a responsive feel.
             widget.dataset.state = next;
+            showActFeedback('Sending…');
+
+            try {
+                const res  = await fetch('/api/manual_actuator', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ [key]: actuatorPayloadFor(key, next === 'on') })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showActFeedback('Updated \u2713', 'ok');
+                } else {
+                    // Revert the switch if the command failed to send.
+                    widget.dataset.state = current;
+                    showActFeedback(data.message || 'Failed', 'err');
+                }
+            } catch (err) {
+                widget.dataset.state = current;
+                showActFeedback('Network error', 'err');
+            } finally {
+                busy = false;
+            }
         });
     });
 }
 
-function getActuatorStates() {
-    const states = {};
-    document.querySelectorAll('.act-onoff').forEach(widget => {
-        const key = widget.dataset.actuator;
-        const on  = widget.dataset.state === 'on';
-        // Ventilation sends a level string; cooler and humidifier send booleans
-        if (key === 'ventilation') {
-            states[key] = on ? 'LOW' : 'OFF';   // manual mode defaults to LOW when ON
-        } else {
-            states[key] = on;
-        }
-    });
-    return states;
-}
-
-// ── Send command to backend ────────────────────────────────────────────────────
-async function sendActuatorCommand() {
-    const controls = document.getElementById('act-controls');
-    if (controls.classList.contains('act-locked')) return;
-
-    const feedback = document.getElementById('act-feedback');
-    feedback.textContent = 'Sending…';
-    feedback.className   = 'act-feedback';
-
+// Sync the toggle switches with whatever state the backend currently reports
+// (e.g. after a page refresh) so they don't default back to OFF visually.
+async function syncActuatorToggles() {
     try {
-        const res  = await fetch('/api/manual_actuator', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(getActuatorStates())
-        });
+        const res  = await fetch('/api/current_data');
         const data = await res.json();
-        if (data.success) {
-            feedback.textContent = 'Command sent \u2713';
-            feedback.className   = 'act-feedback act-feedback-ok';
-        } else {
-            feedback.textContent = data.message || 'Failed';
-            feedback.className   = 'act-feedback act-feedback-err';
-        }
+        const status = data.actuator_status || {};
+        document.querySelectorAll('.act-onoff').forEach(widget => {
+            const key = widget.dataset.actuator;
+            let isOn = false;
+            if (key === 'ventilation') {
+                isOn = (status.ventilation || 'OFF') !== 'OFF';
+            } else {
+                isOn = !!status[key];
+            }
+            widget.dataset.state = isOn ? 'on' : 'off';
+        });
     } catch (err) {
-        feedback.textContent = 'Network error';
-        feedback.className   = 'act-feedback act-feedback-err';
+        // Leave switches at their default state if this fails.
     }
-
-    // Clear feedback after 3 s
-    setTimeout(() => { feedback.textContent = ''; feedback.className = 'act-feedback'; }, 3000);
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────────
@@ -201,6 +256,13 @@ function bindTabs() {
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 async function boot() {
+    // Defensive: if this script ever gets re-run on the same page (e.g. a
+    // kiosk wrapper re-injecting it without a full reload), don't initialise
+    // everything a second time — that would double up event listeners and
+    // cause every tap to fire twice.
+    if (window.__foodmonSystemControlBooted) return;
+    window.__foodmonSystemControlBooted = true;
+
     bindTabs();
     updateHeaderTime();
     setInterval(updateHeaderTime, 1000);
@@ -208,9 +270,9 @@ async function boot() {
     buildSensorGrid();
     await loadSession();
     initActuatorToggles();
+    await syncActuatorToggles();
     document.getElementById('start-btn').addEventListener('click', startSession);
     document.getElementById('stop-btn').addEventListener('click', stopSession);
-    document.getElementById('act-send-btn').addEventListener('click', sendActuatorCommand);
 }
 
 document.addEventListener('DOMContentLoaded', boot);
