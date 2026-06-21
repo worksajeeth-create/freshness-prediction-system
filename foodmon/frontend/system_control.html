@@ -69,7 +69,10 @@
                     <span>Manual control disabled — active monitoring session in progress.</span>
                 </div>
 
-                <!-- Actuator rows -->
+                <!-- Actuator rows: each switch directly controls its actuator.
+                     There is no timer and no separate "send" step — flipping a
+                     switch immediately turns that actuator on or off, and it
+                     stays that way until the switch is flipped again. -->
                 <div id="act-controls" class="act-controls">
 
                     <!-- Cooler -->
@@ -156,7 +159,6 @@
 
                 <div class="act-send-row">
                     <div id="act-feedback" class="act-feedback"></div>
-                    <button id="act-send-btn" class="secondary-button small-btn">&#9654; Send Command</button>
                 </div>
 
             </div>
