@@ -20,6 +20,28 @@ const SENSOR_META = {
 
 function capitalize(text) { return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; }
 
+// ── Global UI beep ──────────────────────────────────────────────────
+// Requirement: "The system shall generate a short beep whenever the
+// user presses a touchscreen button, tab, or toggle switch."
+//
+// Implemented as a single delegated, capturing click listener on
+// document so it covers every interactive control on this page —
+// including ones added or re-rendered dynamically — without having to
+// wire a beep call into each individual handler.
+function fireUiBeep() {
+    fetch('/api/buzzer_beep', { method: 'POST' }).catch(() => {
+        // Silent fail — MQTT/broker may be temporarily unavailable;
+        // never block or alarm the user over a missed UI beep.
+    });
+}
+
+document.addEventListener('click', function (evt) {
+    const target = evt.target.closest(
+        'button, .tab-btn, .climate-mode-btn, .icon-button, .act-onoff'
+    );
+    if (target) fireUiBeep();
+}, true);
+
 document.addEventListener('DOMContentLoaded', async function () {
     // Storage gauges
     tempGauge     = new TemperatureGauge('temp-gauge');
@@ -269,6 +291,11 @@ socket.on('ml_update', function (data) {
             badge.style.background = '#FF9800'; badge.style.color = '#1a1a1a';
         } else if (data.status === 'Spoiled') {
             badge.style.background = '#F44336'; badge.style.color = '#ffffff';
+            // Note: the long alert beep itself is fired server-side,
+            // exactly once per spoilage event, by run_ml_and_control()
+            // in app.py — not from here. This keeps the alert tied to
+            // the authoritative ML state rather than to UI redraws,
+            // which could otherwise re-fire on every socket update.
         }
     }
     if (data.remaining_days != null) {
