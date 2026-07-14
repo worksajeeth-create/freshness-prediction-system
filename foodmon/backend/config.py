@@ -73,6 +73,16 @@ ESP_BUZZER_COMMAND_TOPIC = os.getenv(
 # How long (seconds) timed actuators run after each command.
 ACTUATOR_RUN_SECONDS = int(os.getenv("FOODMON_ACTUATOR_RUN_SECONDS", "60"))
 
+# ─── Temporary automatic-control overrides ─────────────────────────────
+# The cooler and ventilation trigger conditions are being redefined — until
+# new conditions are ready, both stay off regardless of what
+# ActuatorController's rule logic in actuator_control.py would otherwise
+# decide (that logic is untouched, just gated off here). Humidifier control
+# is unaffected. Flip these back to True once new conditions are in place —
+# no other code needs to change.
+AUTO_COOLER_ENABLED      = False
+AUTO_VENTILATION_ENABLED = False
+
 ACTUATOR_PINS = {
     "cooler":    19,
     "cool_fan":  18,
@@ -103,6 +113,7 @@ SUPPORTED_FOODS = [
     "apple", "banana", "orange", "grapes", "strawberry",
     "mango", "peach", "pear", "tomato", "carrot",
     "broccoli", "corn", "lettuce", "blueberry", "kiwi",
+    "rice",
 ]
 
 DEFAULT_GAS_SENSORS_BY_FOOD = {
@@ -121,18 +132,29 @@ DEFAULT_GAS_SENSORS_BY_FOOD = {
     "lettuce":    ["mq135", "co2"],
     "blueberry":  ["mq3", "mq135", "co2"],
     "kiwi":       ["mq3", "mq135", "co2"],
+    # The rice classifier/regressor were trained on ALL 7 gas sensors —
+    # select all of them on the System Control > Gas Sensors tab when
+    # running a rice session, or the missing ones are sent as 0.0 and
+    # will hurt prediction accuracy (ml_engine.py logs a warning if so).
+    "rice":       ["mq2", "mq3", "mq4", "mq135", "mq136", "mq137", "co2"],
 }
 
 TEMPERATURE_OPTIMAL = {
     "apple": 4.0, "banana": 13.0, "orange": 8.0,  "grapes": 0.0,  "strawberry": 1.0,
     "mango": 13.0,"peach":  1.0,  "pear":   1.0,  "tomato": 12.0, "carrot":     0.0,
     "broccoli": 0.0, "corn": 1.0, "lettuce": 0.0, "blueberry": 0.0, "kiwi": 0.0,
+    # Placeholder — cooked rice is safest refrigerated. Adjust once you have
+    # real spoilage-vs-temperature data; it only affects the cooler/humidifier
+    # rule-based actuator logic, not the ML status/RSL predictions.
+    "rice": 4.0,
 }
 
 HUMIDITY_OPTIMAL = {
     "apple": 90.0, "banana": 85.0, "orange": 90.0, "grapes": 90.0, "strawberry": 90.0,
     "mango": 85.0, "peach":  90.0, "pear":   90.0, "tomato": 85.0, "carrot":     95.0,
     "broccoli": 95.0, "corn": 95.0, "lettuce": 95.0, "blueberry": 90.0, "kiwi": 90.0,
+    # Placeholder — same caveat as TEMPERATURE_OPTIMAL above.
+    "rice": 60.0,
 }
 
 GAS_THRESHOLDS = {
