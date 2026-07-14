@@ -179,8 +179,65 @@ function initFreshnessChart() {
     const ctx = document.getElementById('freshness-chart').getContext('2d');
     freshnessChart = new Chart(ctx, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: 'Freshness', data: [], borderColor: '#4CAF50', backgroundColor: 'rgba(76,175,80,0.1)', borderWidth: 2, tension: 0.4, fill: true, pointRadius: 0 }] },
-        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 }, x: {} } }
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Freshness Index',
+                    yAxisID: 'y',
+                    data: [],
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76,175,80,0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0
+                },
+                {
+                    // Remaining Shelf Life — trends downward as hours_elapsed
+                    // increases, showing at a glance how much time is left.
+                    label: 'Remaining Life (hrs)',
+                    yAxisID: 'y1',
+                    data: [],
+                    borderColor: '#FF9800',
+                    backgroundColor: 'rgba(255,152,0,0.08)',
+                    borderWidth: 2,
+                    borderDash: [4, 3],
+                    tension: 0.4,
+                    fill: false,
+                    pointRadius: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#a0a0a0', boxWidth: 10, font: { size: 8 } }
+                }
+            },
+            scales: {
+                x: { ticks: { color: '#a0a0a0', font: { size: 8 }, maxTicksLimit: 5, maxRotation: 0 } },
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    min: 0,
+                    max: 100,
+                    ticks: { color: '#4CAF50', font: { size: 8 } },
+                    title: { display: false }
+                },
+                y1: {
+                    type: 'linear',
+                    position: 'right',
+                    min: 0,
+                    grid: { drawOnChartArea: false },
+                    ticks: { color: '#FF9800', font: { size: 8 } }
+                }
+            }
+        }
     });
 }
 
@@ -199,6 +256,18 @@ function checkStaleData() {
             document.getElementById('session-line').textContent = 'No recent sensor data';
         }
     }
+}
+
+// Formats a remaining-life reading for display. Foods whose model reports
+// only whole days round-trip fine through this; the rice regressor's
+// hour-level precision (e.g. "3.2 hrs" instead of "0.1 days") shows through
+// automatically once the backend starts sending remaining_hours.
+function formatRemainingLife(days, hours) {
+    const hrs = (hours != null) ? hours : days * 24;
+    if (hrs < 24) {
+        return hrs.toFixed(1) + ' hrs';
+    }
+    return days.toFixed(1) + ' days';
 }
 
 // ── Socket events ──────────────────────────────────────────────────────────────
@@ -281,8 +350,24 @@ socket.on('climate_update', function (data) {
 
 
 socket.on('ml_update', function (data) {
+    // Status -> color lookup shared by the badge, the big freshness number,
+    // and the freshness-trend line on the graph, so all three always agree.
+    const STATUS_COLORS = {
+        'Fresh':        '#4CAF50',
+        'Half-Spoiled': '#FF9800',
+        'Spoiled':      '#F44336'
+    };
+
     if (data.freshness_index != null) {
-        document.getElementById('freshness-index').textContent = Math.round(data.freshness_index);
+        const freshnessNumberEl = document.getElementById('freshness-index');
+        freshnessNumberEl.textContent = Math.round(data.freshness_index);
+
+        const statusColor = STATUS_COLORS[data.status] || null;
+        if (statusColor) {
+            freshnessNumberEl.style.color = statusColor;
+            freshnessNumberEl.style.textShadow = `0 0 14px ${statusColor}80`; // ~50% alpha glow
+        }
+
         const badge = document.getElementById('status-badge');
         badge.textContent = data.status || 'Analyzing...';
         if (data.status === 'Fresh') {
@@ -297,9 +382,25 @@ socket.on('ml_update', function (data) {
             // the authoritative ML state rather than to UI redraws,
             // which could otherwise re-fire on every socket update.
         }
+
+        // Recolor the freshness-index line on the graph to match the current
+        // status too (whole line, not per-segment — simplest and matches
+        // "when it turns spoiled, the graph should be red").
+        if (freshnessChart && statusColor) {
+            freshnessChart.data.datasets[0].borderColor = statusColor;
+            freshnessChart.data.datasets[0].backgroundColor = statusColor + '1A'; // ~10% alpha fill
+            freshnessChart.update('none');
+        }
     }
     if (data.remaining_days != null) {
-        document.getElementById('remaining-days').textContent = data.remaining_days + ' days';
+        document.getElementById('remaining-days').textContent =
+            formatRemainingLife(data.remaining_days, data.remaining_hours);
+    } else if (data.freshness_index != null) {
+        // remaining_days is null while the trend model is still gathering its
+        // first few readings (see RiceTrendModel.MIN_TREND_POINTS) — status
+        // and freshness_index are already live at this point, just not the
+        // remaining-life estimate yet.
+        document.getElementById('remaining-days').textContent = 'Calculating trend...';
     }
     if (data.history && data.history.length > 0) {
         const limited = data.history.slice(-50);
@@ -308,6 +409,12 @@ socket.on('ml_update', function (data) {
             return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
         });
         freshnessChart.data.datasets[0].data = limited.map(p => p.freshness);
+        // remaining_hours is only present in history entries logged after this
+        // update ships; older entries (or foods whose model predates it) fall
+        // back to null so Chart.js just leaves a gap rather than erroring.
+        freshnessChart.data.datasets[1].data = limited.map(p =>
+            p.remaining_hours != null ? p.remaining_hours : null
+        );
         freshnessChart.update('none');
     }
 });
