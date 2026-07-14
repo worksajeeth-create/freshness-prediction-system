@@ -40,7 +40,21 @@ class SessionManager:
     def save_state(self) -> None:
         self.state_file.write_text(json.dumps(asdict(self.state), indent=2))
 
-    def start(self, food_name: str, selected_sensors: List[str], freshness_label: str = "fresh") -> Dict[str, Any]:
+    def start(
+        self,
+        food_name: str,
+        selected_sensors: List[str],
+        freshness_label: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Start a new session.
+
+        freshness_label should stay None for normal live-monitoring sessions
+        (ML inference + actuator control). It should only be set to
+        "fresh"/"half_spoiled"/"spoiled" for an explicit labeled
+        training-data-collection run — see log_training_data_if_enabled()
+        and sensor_callback() in app.py, which route ANY truthy
+        freshness_label to Firestore-only logging and skip live ML/control.
+        """
         session_id = str(int(time.time()))
         ordered_sensors = [s for s in config.SELECTABLE_GAS_SENSORS if s in selected_sensors]
         self.state = SessionState(
