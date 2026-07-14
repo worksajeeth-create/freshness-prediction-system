@@ -54,6 +54,7 @@ ml_results: Dict[str, Any] = {
     "freshness_index": None,
     "status": None,
     "remaining_days": None,
+    "remaining_hours": None,
     "history": [],
 }
 
@@ -200,8 +201,17 @@ def run_ml_and_control() -> None:
         return
 
     flat = extract_flat_sensor_values()
+
+    # Hours since this session started — the rice RSL regressor needs this
+    # as its 19th feature; other single-model foods simply ignore it.
+    start_time = session.get("start_time")
+    hours_elapsed = ((time.time() - start_time) / 3600.0) if start_time else 0.0
+
     prediction = ml_engine.predict(
-        session["food_name"], flat, session.get("selected_sensors", [])
+        session["food_name"],
+        flat,
+        session.get("selected_sensors", []),
+        hours_elapsed=hours_elapsed,
     )
     if not prediction:
         return
@@ -209,10 +219,33 @@ def run_ml_and_control() -> None:
     ml_results["freshness_index"] = prediction["freshness_index"]
     ml_results["status"] = prediction["status"]
     ml_results["status_color"] = prediction["status_color"]
-    ml_results["remaining_days"] = prediction["remaining_days"]
-    ml_results["history"].append(
-        {"timestamp": sensor_data["timestamp"], "freshness": prediction["freshness_index"]}
-    )
+    # remaining_days/remaining_hours can be None early in a session — the
+    # rice model needs a few readings (MIN_TREND_POINTS) before it has enough
+    # trend history to extrapolate a remaining-life estimate. Pass None
+    # straight through rather than crashing on None * 24.0; the dashboard
+    # already treats null remaining_days as "still calculating" (app.js only
+    # updates the readout when data.remaining_days != null).
+    remaining_days = prediction["remaining_days"]
+    if "remaining_hours" in prediction:
+        remaining_hours = prediction["remaining_hours"]
+    elif remaining_days is not None:
+        remaining_hours = round(remaining_days * 24.0, 1)
+    else:
+        remaining_hours = None
+    ml_results["remaining_days"] = remaining_days
+    ml_results["remaining_hours"] = remaining_hours
+    ml_results["history"].append({
+        # NOTE: sensor_data["timestamp"] comes straight from the ESP32's
+        # `millis() / 1000` (seconds since the ESP booted), NOT a real Unix
+        # epoch. Using it here would plot every point near Jan 1 1970 --
+        # which is exactly the "06:53 AM" graph labels you saw. Use the Pi's
+        # real wall-clock time instead; it's authoritative and always correct
+        # regardless of the ESP's uptime/clock.
+        "timestamp": int(time.time()),
+        "freshness": prediction["freshness_index"],
+        "remaining_hours": remaining_hours,
+        "hours_elapsed": round(hours_elapsed, 2),
+    })
     ml_results["history"] = ml_results["history"][-config.DASHBOARD_HISTORY_LIMIT:]
 
     # Long beep — fires once on the transition into "Spoiled".
@@ -366,10 +399,20 @@ def start_session():
     data = request.json or {}
     food_name = str(data.get("food_name", "")).lower().strip()
     selected_sensors = data.get("selected_sensors", [])
-    freshness_label = str(data.get("freshness_label", "fresh")).lower().strip()
+
+    # IMPORTANT: freshness_label must default to None (not "fresh"), because
+    # sensor_callback() treats ANY truthy freshness_label as a labeled
+    # training-data-collection session — logging to Firestore only and
+    # SKIPPING run_ml_and_control() entirely. The System Control "Start
+    # Monitoring" button never sends this field, so a truthy default here
+    # silently disabled live ML/actuator control for every normal session.
+    # Only pass freshness_label explicitly (e.g. from a data-collection
+    # script) when you actually want training-log-only behaviour.
+    raw_label = data.get("freshness_label")
+    freshness_label = str(raw_label).lower().strip() if raw_label else None
 
     valid_labels = {"fresh", "half_spoiled", "spoiled"}
-    if freshness_label not in valid_labels:
+    if freshness_label is not None and freshness_label not in valid_labels:
         return jsonify({
             "success": False,
             "message": f"freshness_label must be one of {sorted(valid_labels)}",
@@ -388,6 +431,11 @@ def start_session():
         # Reset spoilage edge-detection so a new session always starts
         # from a clean "not yet spoiled" state.
         _last_freshness_status = None
+
+        # Reset any per-session ML state (e.g. the rice model's rolling-mean
+        # buffers) so a new session never sees data left over from the last one.
+        if ml_engine:
+            ml_engine.reset_food_state(food_name)
 
         try:
             cloud_client.upsert_session(session)
