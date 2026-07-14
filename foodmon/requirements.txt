@@ -5,4 +5,10 @@ paho-mqtt==2.1.0
 python-socketio==5.11.3
 joblib==1.4.2
 numpy==1.26.4
+pandas==2.2.2
 requests==2.32.3
+# Required to unpickle classifier.pkl / regressor.pkl (RandomForest models).
+# Pinned to the version they were trained with to avoid the
+# InconsistentVersionWarning / behaviour drift that comes with mismatched
+# scikit-learn versions loading a pickled estimator.
+scikit-learn==1.7.2
