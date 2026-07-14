@@ -68,6 +68,11 @@ class ActuatorController:
         else:
             print("ActuatorController: ESP actuator mode (Pi GPIO disabled)")
 
+        if not config.AUTO_COOLER_ENABLED:
+            print("ActuatorController: automatic COOLER control is DISABLED (config.AUTO_COOLER_ENABLED=False)")
+        if not config.AUTO_VENTILATION_ENABLED:
+            print("ActuatorController: automatic VENTILATION control is DISABLED (config.AUTO_VENTILATION_ENABLED=False)")
+
     def update(
         self,
         food_name: str,
@@ -97,9 +102,16 @@ class ActuatorController:
         humidity_optimal = config.HUMIDITY_OPTIMAL.get(food_name, 90.0)
         gases_exceeding  = self._check_gas_thresholds(sensor_data, selected_sensors)
 
-        self._control_cooler    (temperature, temp_optimal, freshness, gases_exceeding)
-        self._control_ventilation(gases_exceeding, freshness)
-        self._control_humidifier (humidity, humidity_optimal)
+        # Cooler and ventilation are temporarily gated off by config while
+        # their trigger conditions are being redefined (config.py). The rule
+        # logic itself (_control_cooler / _control_ventilation) is untouched
+        # below — flip the two config flags back to True to re-enable it,
+        # no other change needed. Humidifier control always runs as before.
+        if config.AUTO_COOLER_ENABLED:
+            self._control_cooler(temperature, temp_optimal, freshness, gases_exceeding)
+        if config.AUTO_VENTILATION_ENABLED:
+            self._control_ventilation(gases_exceeding, freshness)
+        self._control_humidifier(humidity, humidity_optimal)
 
         if not suppress_dispatch:
             self._dispatch_state()
