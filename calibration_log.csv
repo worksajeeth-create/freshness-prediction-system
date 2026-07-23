@@ -1,0 +1,149 @@
+cycle_number,sensor_id,condition,sensor_reading,reference_value,reference_source,abs_error,error_pct,pass_fail,notes
+1,temperature,room_temperature,30.7,30.7,digital_thermometer,0,0,PASS,
+1,humidity,room_temperature,74.5,74,digital_hygrometer,0.5,0.68,PASS,
+2,temperature,room_temperature,30.7,30.7,digital_thermometer,0,0,PASS,
+2,humidity,room_temperature,74.5,74,digital_hygrometer,0.5,0.68,PASS,
+3,temperature,room_temperature,30.7,30,digital_thermometer,0.7,2.33,PASS,
+3,humidity,room_temperature,74.5,74,digital_hygrometer,0.5,0.68,PASS,
+4,temperature,room_temperature,30.7,30.7,digital_thermometer,0,0,PASS,
+4,humidity,room_temperature,74.5,74,digital_hygrometer,0.5,0.68,PASS,
+5,temperature,room_temperature,30.7,30.5,digital_thermometer,0.2,0.66,PASS,
+5,humidity,room_temperature,74.4,74,digital_hygrometer,0.4,0.54,PASS,
+6,temperature,room_temperature,30.7,30,digital_thermometer,0.7,2.33,PASS,
+6,humidity,room_temperature,74.5,74.4,digital_hygrometer,0.1,0.13,PASS,
+7,temperature,room_temperature,30.7,30.7,digital_thermometer,0,0,PASS,
+7,humidity,room_temperature,74.5,74.3,digital_hygrometer,0.2,0.27,PASS,
+8,temperature,room_temperature,30.7,30.7,digital_thermometer,0,0,PASS,
+8,humidity,room_temperature,74.5,74.5,digital_hygrometer,0,0,PASS,
+9,temperature,room_temperature,30.7,30.7,digital_thermometer,0,0,PASS,
+9,humidity,room_temperature,74.3,74.5,digital_hygrometer,0.2,0.27,PASS,
+10,temperature,room_temperature,30.6,30.7,digital_thermometer,0.1,0.33,PASS,
+10,humidity,room_temperature,74.3,74.4,digital_hygrometer,0.1,0.13,PASS,
+11,temperature,cooled_environment,28.9,28.9,digital_thermometer,0,0,PASS,
+11,humidity,cooled_environment,50,49.8,digital_hygrometer,0.2,0.4,PASS,
+12,temperature,cooled_environment,28.7,28.9,digital_thermometer,0.2,0.69,PASS,
+12,humidity,cooled_environment,51.4,51,digital_hygrometer,0.4,0.78,PASS,
+13,temperature,cooled_environment,28.7,28.7,digital_thermometer,0,0,PASS,
+13,humidity,cooled_environment,52.6,52.2,digital_hygrometer,0.4,0.77,PASS,
+14,temperature,cooled_environment,28.6,28.6,digital_thermometer,0,0,PASS,
+14,humidity,cooled_environment,53.4,53.1,digital_hygrometer,0.3,0.56,PASS,
+15,temperature,cooled_environment,28.6,28.6,digital_thermometer,0,0,PASS,
+15,humidity,cooled_environment,55.4,55,digital_hygrometer,0.4,0.73,PASS,
+16,temperature,cooled_environment,28.6,28.6,digital_thermometer,0,0,PASS,
+16,humidity,cooled_environment,56.1,56,digital_hygrometer,0.1,0.18,PASS,
+17,temperature,cooled_environment,28.5,28.6,digital_thermometer,0.1,0.35,PASS,
+17,humidity,cooled_environment,57.3,57,digital_hygrometer,0.3,0.52,PASS,
+18,temperature,cooled_environment,28.5,28.5,digital_thermometer,0,0,PASS,
+18,humidity,cooled_environment,58.1,57.8,digital_hygrometer,0.3,0.52,PASS,
+19,temperature,cooled_environment,28.5,28.5,digital_thermometer,0,0,PASS,
+19,humidity,cooled_environment,58.7,58.5,digital_hygrometer,0.2,0.34,PASS,
+20,temperature,cooled_environment,28.5,28.5,digital_thermometer,0,0,PASS,
+20,humidity,cooled_environment,59.1,59,digital_hygrometer,0.1,0.17,PASS,
+21,temperature,warm_environment,33.1,33,digital_thermometer,0.1,0.3,PASS,
+21,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+22,temperature,warm_environment,33.2,33.1,digital_thermometer,0.1,0.3,PASS,
+22,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+23,temperature,warm_environment,33.3,33.3,digital_thermometer,0,0,PASS,
+23,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+24,temperature,warm_environment,33.4,33.4,digital_thermometer,0,0,PASS,
+24,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+25,temperature,warm_environment,33.5,33.5,digital_thermometer,0,0,PASS,
+25,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+26,temperature,warm_environment,33.6,33.5,digital_thermometer,0.1,0.3,PASS,
+26,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+27,temperature,warm_environment,33.7,33.6,digital_thermometer,0.1,0.3,PASS,
+27,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+28,temperature,warm_environment,33.9,33.9,digital_thermometer,0,0,PASS,
+28,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+29,temperature,warm_environment,34,34,digital_thermometer,0,0,PASS,
+29,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+30,temperature,warm_environment,34.1,34,digital_thermometer,0.1,0.29,PASS,
+30,humidity,warm_environment,99.9,99.9,digital_hygrometer,0,0,PASS,
+,,,,,,,,,
+31,co2,open_air,440,420,atmospheric_constant_420ppm,20,4.8,PASS,
+32,co2,open_air,448,420,atmospheric_constant_420ppm,28,6.7,PASS,
+33,co2,open_air,449,420,atmospheric_constant_420ppm,29,6.9,PASS,
+34,co2,open_air,445,420,atmospheric_constant_420ppm,25,6.0,PASS,
+35,co2,open_air,443,420,atmospheric_constant_420ppm,23,5.5,PASS,
+36,co2,open_air,437,420,atmospheric_constant_420ppm,17,4.0,PASS,
+37,co2,open_air,439,420,atmospheric_constant_420ppm,19,4.5,PASS,
+38,co2,open_air,433,420,atmospheric_constant_420ppm,13,3.1,PASS,
+39,co2,open_air,429,420,atmospheric_constant_420ppm,9,2.1,PASS,
+40,co2,open_air,425,420,atmospheric_constant_420ppm,5,1.2,PASS,
+,,,,,,,,,
+41,co2,sealed_chamber_fruit,1007,1013.6,mean_of_10_sealed_readings,6.6,0.65,PASS,CV=1.93%
+42,co2,sealed_chamber_fruit,999,1013.6,mean_of_10_sealed_readings,14.6,1.44,PASS,CV=1.93%
+43,co2,sealed_chamber_fruit,987,1013.6,mean_of_10_sealed_readings,26.6,2.62,PASS,CV=1.93%
+44,co2,sealed_chamber_fruit,991,1013.6,mean_of_10_sealed_readings,22.6,2.23,PASS,CV=1.93%
+45,co2,sealed_chamber_fruit,999,1013.6,mean_of_10_sealed_readings,14.6,1.44,PASS,CV=1.93%
+46,co2,sealed_chamber_fruit,1017,1013.6,mean_of_10_sealed_readings,3.4,0.34,PASS,CV=1.93%
+47,co2,sealed_chamber_fruit,1030,1013.6,mean_of_10_sealed_readings,16.4,1.62,PASS,CV=1.93%
+48,co2,sealed_chamber_fruit,1034,1013.6,mean_of_10_sealed_readings,20.4,2.01,PASS,CV=1.93%
+49,co2,sealed_chamber_fruit,1041,1013.6,mean_of_10_sealed_readings,27.4,2.7,PASS,CV=1.93%
+50,co2,sealed_chamber_fruit,1031,1013.6,mean_of_10_sealed_readings,17.4,1.72,PASS,CV=1.93%
+,,,,,,,,,
+51,mq4,controlled_stimulus,659.3,655.6,mean_of_10_identical_stimuli,3.67,0.56,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+52,mq4,controlled_stimulus,654.6,655.6,mean_of_10_identical_stimuli,1.03,0.16,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+53,mq4,controlled_stimulus,657.9,655.6,mean_of_10_identical_stimuli,2.27,0.35,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+54,mq4,controlled_stimulus,659.7,655.6,mean_of_10_identical_stimuli,4.07,0.62,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+55,mq4,controlled_stimulus,654.9,655.6,mean_of_10_identical_stimuli,0.73,0.11,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+56,mq4,controlled_stimulus,652.7,655.6,mean_of_10_identical_stimuli,2.93,0.45,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+57,mq4,controlled_stimulus,652,655.6,mean_of_10_identical_stimuli,3.63,0.55,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+58,mq4,controlled_stimulus,655.3,655.6,mean_of_10_identical_stimuli,0.33,0.05,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+59,mq4,controlled_stimulus,655.3,655.6,mean_of_10_identical_stimuli,0.33,0.05,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+60,mq4,controlled_stimulus,654.6,655.6,mean_of_10_identical_stimuli,1.03,0.16,PASS,CV=0.39%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+,,,,,,,,,
+61,mq135,controlled_stimulus,309.5,311.7,mean_of_10_identical_stimuli,2.2,0.71,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+62,mq135,controlled_stimulus,317.5,311.7,mean_of_10_identical_stimuli,5.8,1.86,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+63,mq135,controlled_stimulus,304.8,311.7,mean_of_10_identical_stimuli,6.9,2.21,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+64,mq135,controlled_stimulus,316.4,311.7,mean_of_10_identical_stimuli,4.7,1.51,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+65,mq135,controlled_stimulus,320.7,311.7,mean_of_10_identical_stimuli,9,2.89,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+66,mq135,controlled_stimulus,299.9,311.7,mean_of_10_identical_stimuli,11.8,3.79,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+67,mq135,controlled_stimulus,324.9,311.7,mean_of_10_identical_stimuli,13.2,4.23,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+68,mq135,controlled_stimulus,306.2,311.7,mean_of_10_identical_stimuli,5.5,1.76,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+69,mq135,controlled_stimulus,307.1,311.7,mean_of_10_identical_stimuli,4.6,1.48,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+70,mq135,controlled_stimulus,310,311.7,mean_of_10_identical_stimuli,1.7,0.55,PASS,CV=2.52%  stimulus=Hold a cotton wool ball with 2 drops of nail polis
+,,,,,,,,,
+71,mq136,controlled_stimulus,91.7,94.6,mean_of_10_identical_stimuli,2.87,3.03,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+72,mq136,controlled_stimulus,92.6,94.6,mean_of_10_identical_stimuli,1.97,2.08,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+73,mq136,controlled_stimulus,92.3,94.6,mean_of_10_identical_stimuli,2.27,2.4,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+74,mq136,controlled_stimulus,92.4,94.6,mean_of_10_identical_stimuli,2.17,2.29,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+75,mq136,controlled_stimulus,97.3,94.6,mean_of_10_identical_stimuli,2.73,2.89,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+76,mq136,controlled_stimulus,95.9,94.6,mean_of_10_identical_stimuli,1.33,1.41,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+77,mq136,controlled_stimulus,96.5,94.6,mean_of_10_identical_stimuli,1.93,2.04,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+78,mq136,controlled_stimulus,98.6,94.6,mean_of_10_identical_stimuli,4.03,4.26,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+79,mq136,controlled_stimulus,94.3,94.6,mean_of_10_identical_stimuli,0.27,0.29,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+80,mq136,controlled_stimulus,94.1,94.6,mean_of_10_identical_stimuli,0.47,0.5,PASS,"CV=2.53%  stimulus=Strike a match, let it burn for 1 second, then hol"
+,,,,,,,,,
+81,mq137,controlled_stimulus,122.5,125.9,mean_of_10_identical_stimuli,3.4,2.7,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+82,mq137,controlled_stimulus,124.3,125.9,mean_of_10_identical_stimuli,1.6,1.27,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+83,mq137,controlled_stimulus,122.5,125.9,mean_of_10_identical_stimuli,3.4,2.7,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+84,mq137,controlled_stimulus,122.2,125.9,mean_of_10_identical_stimuli,3.7,2.94,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+85,mq137,controlled_stimulus,129.8,125.9,mean_of_10_identical_stimuli,3.9,3.1,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+86,mq137,controlled_stimulus,120.7,125.9,mean_of_10_identical_stimuli,5.2,4.13,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+87,mq137,controlled_stimulus,122.5,125.9,mean_of_10_identical_stimuli,3.4,2.7,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+88,mq137,controlled_stimulus,130.7,125.9,mean_of_10_identical_stimuli,4.8,3.81,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+89,mq137,controlled_stimulus,131.9,125.9,mean_of_10_identical_stimuli,6,4.77,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+90,mq137,controlled_stimulus,131.9,125.9,mean_of_10_identical_stimuli,6,4.77,PASS,CV=3.63%  stimulus=Give ONE brief spray of ammonia-based glass cleane
+,,,,,,,,,
+91,mq2,controlled_stimulus,2407.7,2398.9,mean_of_10_identical_stimuli,8.81,0.37,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+92,mq2,controlled_stimulus,2333.3,2398.9,mean_of_10_identical_stimuli,65.59,2.73,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+93,mq2,controlled_stimulus,2416.8,2398.9,mean_of_10_identical_stimuli,17.91,0.75,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+94,mq2,controlled_stimulus,2404.8,2398.9,mean_of_10_identical_stimuli,5.91,0.25,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+95,mq2,controlled_stimulus,2375.1,2398.9,mean_of_10_identical_stimuli,23.79,0.99,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+96,mq2,controlled_stimulus,2409.2,2398.9,mean_of_10_identical_stimuli,10.31,0.43,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+97,mq2,controlled_stimulus,2424.5,2398.9,mean_of_10_identical_stimuli,25.61,1.07,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+98,mq2,controlled_stimulus,2367,2398.9,mean_of_10_identical_stimuli,31.89,1.33,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+99,mq2,controlled_stimulus,2436.6,2398.9,mean_of_10_identical_stimuli,37.71,1.57,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+100,mq2,controlled_stimulus,2413.9,2398.9,mean_of_10_identical_stimuli,15.01,0.63,PASS,CV=1.30%  stimulus=Flick a lighter ONCE near the sensor (1-2 cm away)
+,,,,,,,,,
+101,mq3,controlled_stimulus,398.5,399.2,mean_of_10_identical_stimuli,0.66,0.17,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+102,mq3,controlled_stimulus,395.5,399.2,mean_of_10_identical_stimuli,3.66,0.92,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+103,mq3,controlled_stimulus,402.2,399.2,mean_of_10_identical_stimuli,3.04,0.76,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+104,mq3,controlled_stimulus,406.5,399.2,mean_of_10_identical_stimuli,7.34,1.84,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+105,mq3,controlled_stimulus,420.5,399.2,mean_of_10_identical_stimuli,21.34,5.35,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+106,mq3,controlled_stimulus,384.4,399.2,mean_of_10_identical_stimuli,14.76,3.7,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+107,mq3,controlled_stimulus,396.9,399.2,mean_of_10_identical_stimuli,2.26,0.57,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+108,mq3,controlled_stimulus,388.2,399.2,mean_of_10_identical_stimuli,10.96,2.75,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+109,mq3,controlled_stimulus,394.8,399.2,mean_of_10_identical_stimuli,4.36,1.09,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
+110,mq3,controlled_stimulus,404.1,399.2,mean_of_10_identical_stimuli,4.94,1.24,PASS,CV=2.53%  stimulus=Hold a cotton wool ball with 3 drops of rubbing al
