@@ -73,15 +73,19 @@ ESP_BUZZER_COMMAND_TOPIC = os.getenv(
 # How long (seconds) timed actuators run after each command.
 ACTUATOR_RUN_SECONDS = int(os.getenv("FOODMON_ACTUATOR_RUN_SECONDS", "60"))
 
-# ─── Temporary automatic-control overrides ─────────────────────────────
-# The cooler and ventilation trigger conditions are being redefined — until
-# new conditions are ready, both stay off regardless of what
-# ActuatorController's rule logic in actuator_control.py would otherwise
-# decide (that logic is untouched, just gated off here). Humidifier control
-# is unaffected. Flip these back to True once new conditions are in place —
-# no other code needs to change.
-AUTO_COOLER_ENABLED      = False
-AUTO_VENTILATION_ENABLED = False
+# ─── Automatic-control settings ─────────────────────────────────────────
+AUTO_COOLER_ENABLED      = True
+AUTO_VENTILATION_ENABLED = True
+
+# Cooler thresholds — PROTOTYPE values for the rice demo, not a food-safety
+# refrigeration target (see TEMPERATURE_OPTIMAL below for the real one).
+# Strict OR rule — cooler is ON whenever EITHER holds, OFF otherwise:
+#   - current_temp > COOLER_ON_TEMP_C            -> ON (too warm)
+#   - freshness_index < COOLER_FRESHNESS_TRIGGER  -> ON (preventive: cool
+#     before the food gets anywhere near the 50% Spoiled cutoff, not after)
+# No temperature deadband — see actuator_control.py's _control_cooler().
+COOLER_ON_TEMP_C        = 28.0
+COOLER_FRESHNESS_TRIGGER = 80.0
 
 ACTUATOR_PINS = {
     "cooler":    19,
