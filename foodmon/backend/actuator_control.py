@@ -97,20 +97,14 @@ class ActuatorController:
         temperature = float(sensor_data.get("temperature", 20.0) or 20.0)
         humidity    = float(sensor_data.get("humidity",    50.0) or 50.0)
         freshness   = float(ml_prediction.get("freshness_index", 50.0) or 50.0)
+        status      = str(ml_prediction.get("status") or "Fresh")
 
-        temp_optimal     = config.TEMPERATURE_OPTIMAL.get(food_name, 4.0)
         humidity_optimal = config.HUMIDITY_OPTIMAL.get(food_name, 90.0)
-        gases_exceeding  = self._check_gas_thresholds(sensor_data, selected_sensors)
 
-        # Cooler and ventilation are temporarily gated off by config while
-        # their trigger conditions are being redefined (config.py). The rule
-        # logic itself (_control_cooler / _control_ventilation) is untouched
-        # below — flip the two config flags back to True to re-enable it,
-        # no other change needed. Humidifier control always runs as before.
         if config.AUTO_COOLER_ENABLED:
-            self._control_cooler(temperature, temp_optimal, freshness, gases_exceeding)
+            self._control_cooler(temperature, freshness, status)
         if config.AUTO_VENTILATION_ENABLED:
-            self._control_ventilation(gases_exceeding, freshness)
+            self._control_ventilation(status)
         self._control_humidifier(humidity, humidity_optimal)
 
         if not suppress_dispatch:
@@ -123,6 +117,9 @@ class ActuatorController:
     def _check_gas_thresholds(
         self, sensor_data: Dict[str, float], selected_sensors: List[str]
     ) -> List[str]:
+        """Kept for potential future use (e.g. a gas-count-scaled ventilation
+        mode) but not currently called — ventilation is now a strict binary
+        driven by the latched status, see _control_ventilation()."""
         exceeding = []
         for gas_name in selected_sensors:
             threshold = config.GAS_THRESHOLDS.get(gas_name)
@@ -137,23 +134,32 @@ class ActuatorController:
                 exceeding.append(gas_name)
         return exceeding
 
-    def _control_cooler(
-        self,
-        current_temp: float,
-        optimal_temp: float,
-        freshness: float,
-        gases_exceeding: List[str],
-    ):
-        should_cool = self.cooler_on
+    def _control_cooler(self, current_temp: float, freshness: float, status: str):
+        """Prototype rice cooler logic (see config.py for the threshold values).
+
+        Strict OR rule — cooler is ON whenever EITHER condition holds:
+          - current_temp > COOLER_ON_TEMP_C   (too warm), OR
+          - freshness < COOLER_FRESHNESS_TRIGGER (preventive: cool before the
+            food is anywhere near the 50% Spoiled cutoff, not after)
+        and OFF otherwise. No temperature deadband/hysteresis — this is a
+        prototype-simplicity choice, not a tuned control-loop design; if the
+        cooler chatters on/off near exactly 28C in practice, that's the
+        tradeoff to revisit.
+
+        Once status latches to "Spoiled" (see ml_engine.py), there's nothing
+        left to preserve — the cooler is forced OFF unconditionally, and the
+        food stays that way for the rest of the session (spoilage is
+        irreversible, so this override never re-enables the cooler mid-session).
+        """
         now = time.time()
 
-        if current_temp > optimal_temp + 2:
-            should_cool = True
-        elif current_temp < optimal_temp - 1:
+        if status == "Spoiled":
             should_cool = False
-
-        if len(gases_exceeding) >= 2 and freshness < 70:
-            should_cool = True
+        else:
+            should_cool = (
+                current_temp > config.COOLER_ON_TEMP_C
+                or freshness < config.COOLER_FRESHNESS_TRIGGER
+            )
 
         if should_cool != self.cooler_on and (now - self.last_cooler_change) > 10:
             self.cooler_on = should_cool
@@ -161,29 +167,24 @@ class ActuatorController:
             if self.use_pi_gpio:
                 GPIO.output(self.pins["cooler"], GPIO.HIGH if should_cool else GPIO.LOW)
 
-    def _control_ventilation(self, gases_exceeding: List[str], freshness: float):
-        num = len(gases_exceeding)
-        if freshness < 30:
-            level = "HIGH"
-        elif num == 0:
-            level = "OFF"
-        elif num <= 2:
-            level = "LOW"
-        elif num <= 4:
-            level = "MEDIUM"
-        else:
-            level = "HIGH"
+    def _control_ventilation(self, status: str):
+        """Strict binary: OFF while Fresh, ON (HIGH) once Spoiled.
+
+        status is the same latched value shown on the dashboard badge and
+        used to fire the buzzer alert (see run_ml_and_control() in app.py) —
+        once it reads "Spoiled" it stays that way for the rest of the
+        session (spoilage is irreversible), so ventilation turning on here
+        is likewise a one-way trip: it clears/vents the chamber and stays on,
+        it does not turn back off mid-session.
+        """
+        level = "HIGH" if status == "Spoiled" else "OFF"
 
         if level != self.ventilation_level:
             if self.use_pi_gpio:
                 GPIO.output(self.pins.get("ventilation_low",  0), GPIO.LOW)
                 GPIO.output(self.pins.get("ventilation_med",  0), GPIO.LOW)
                 GPIO.output(self.pins.get("ventilation_high", 0), GPIO.LOW)
-                if level == "LOW":
-                    GPIO.output(self.pins.get("ventilation_low",  0), GPIO.HIGH)
-                elif level == "MEDIUM":
-                    GPIO.output(self.pins.get("ventilation_med",  0), GPIO.HIGH)
-                elif level == "HIGH":
+                if level == "HIGH":
                     GPIO.output(self.pins.get("ventilation_high", 0), GPIO.HIGH)
             self.ventilation_level = level
 
