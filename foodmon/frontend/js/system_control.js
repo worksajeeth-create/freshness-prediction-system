@@ -8,6 +8,16 @@ const GAS_SENSORS = [
     { id: "co2",   name: "CO₂"    }
 ];
 
+// ── Live socket connection ──────────────────────────────────────────────
+// Without this, the Actuators tab only ever reflected whatever the state was
+// at the moment this page was loaded (see the old syncActuatorToggles(),
+// which only fetched /api/current_data once inside boot() and never again).
+// While a session runs, ActuatorController changes cooler/ventilation/
+// humidifier automatically in real time — the dashboard (dashboard.html)
+// already picks that up live via this same socket + 'actuator_update' event;
+// this page needs the identical connection so both pages always agree.
+const socket = io();
+
 function capitalize(text) { return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; }
 
 // ── Global UI beep ──────────────────────────────────────────────────
@@ -245,25 +255,33 @@ function initActuatorToggles() {
     });
 }
 
-// Sync the toggle switches with whatever state the backend currently reports
-// (e.g. after a page refresh) so they don't default back to OFF visually.
+// Applies an actuator_status object (from either a REST fetch or a live
+// socket push) to the toggle widgets. Split out from syncActuatorToggles()
+// so both the one-time initial fetch AND the live 'actuator_update' socket
+// event can share the same rendering logic instead of drifting apart.
+function applyActuatorStatusToToggles(status) {
+    status = status || {};
+    document.querySelectorAll('.act-onoff').forEach(widget => {
+        const key = widget.dataset.actuator;
+        let isOn = false;
+        if (key === 'ventilation') {
+            isOn = (status.ventilation || 'OFF') !== 'OFF';
+        } else {
+            isOn = !!status[key];
+        }
+        widget.dataset.state = isOn ? 'on' : 'off';
+    });
+}
+
+// One-time initial sync on page load (fast path before the socket connects).
 async function syncActuatorToggles() {
     try {
         const res  = await fetch('/api/current_data');
         const data = await res.json();
-        const status = data.actuator_status || {};
-        document.querySelectorAll('.act-onoff').forEach(widget => {
-            const key = widget.dataset.actuator;
-            let isOn = false;
-            if (key === 'ventilation') {
-                isOn = (status.ventilation || 'OFF') !== 'OFF';
-            } else {
-                isOn = !!status[key];
-            }
-            widget.dataset.state = isOn ? 'on' : 'off';
-        });
+        applyActuatorStatusToToggles(data.actuator_status);
     } catch (err) {
-        // Leave switches at their default state if this fails.
+        // Leave switches at their default state if this fails; the live
+        // socket connection below will correct it as soon as it connects.
     }
 }
 
@@ -278,6 +296,22 @@ function bindTabs() {
         });
     });
 }
+
+// ── Live socket events ───────────────────────────────────────────────────────
+// Keeps this page's actuator toggles AND session card continuously accurate
+// for as long as the page stays open — not just at the moment it loaded.
+socket.on('connect', function () {
+    socket.emit('request_update');
+});
+
+socket.on('actuator_update', function (data) {
+    applyActuatorStatusToToggles(data);
+});
+
+socket.on('session_update', function (session) {
+    updateSessionCard(session || {});
+    updateActuatorLock(session || {});
+});
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 async function boot() {
